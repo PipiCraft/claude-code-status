@@ -67,12 +67,15 @@ claude-code-status install
 
 安装后，您可以在终端任意位置直接使用 **`ccs`** 命令：
 ```bash
-ccs ui                   # 交互式选择排版风格 (单行、双行、圆点、斜杠、窄屏紧凑、Unicode 符号)
+ccs ui                   # 交互式选择排版风格 (单行、双行、圆点、斜杠、圆角胶囊、尖角箭头、窄屏紧凑、Unicode 符号)
 ccs theme catppuccin     # 切换色彩主题 (default, catppuccin, nord, tokyo)
 ccs delimiter /          # 自定义分隔符号 (如 / 或 •)
-ccs set <key> <val>      # 快速修改配置 (如 ccs set showGitStatusStats true 或 ccs set lines 2)
+ccs set <key> <val>      # 快速修改配置 (如 ccs set showRateLimitPace true 或 ccs set lines 2)
 ccs get [key]            # 读取配置项当前生效值 (如 ccs get fields)
 ccs config list          # 查看所有配置项、当前值与自定义状态
+ccs export [file]        # 导出当前全部定制配置到文件或终端输出
+ccs import <file>        # 从外部文件导入配置 (自动创建备份)
+ccs reset [config|cache] # 重置配置为默认模板或清除 Git 状态缓存
 ccs preview              # 终端全场景效果预览
 ccs doctor               # 检查配置合法性、Settings绑定与Git运行状态
 ccs uninstall            # 从 Claude Code 设置中安全移除状态栏配置
@@ -192,7 +195,7 @@ ccs config list                      # 列出全部配置项及其是否被自�
   "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
   "showApiDuration": false,    // 是否在 session_duration 后附带显示 API 响应耗时 (例如: 1h 24m (api: 12m))
 
-  // 4. 上下文上限 Token 数 (0 为自动跟随智能体实际配置)
+  // 4. 上下文上限 Token 数 (0 为原生自动感知，原生自适应 200k 及 1M 扩展上下文)
   "contextWindowSize": 0,
 
   // 5. 费用与汇率计算 (基于 Claude Code 提供的 total_cost_usd 结合中转倍率折算，非独立统计 Token 账单)
@@ -207,6 +210,7 @@ ccs config list                      # 列出全部配置项及其是否被自�
   "rateLimitWindows": ["5h", "7d", "mo"],
   "showRateLimitCountdown": true,
   "showRateLimitTrend": false, // 是否显示消耗速度趋势 (↑ 偏快 / ↓ 偏慢)
+  "showRateLimitPace": false,  // 是否显示健康步调预警 (当消耗速度明显快于重置时间时标出 ⚡)
 
   // 7. 外观风格与分隔符
   "delimiter": "|",

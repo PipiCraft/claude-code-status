@@ -67,12 +67,15 @@ claude-code-status install
 
 After installation, use `ccs` to manage settings:
 ```bash
-ccs ui                   # Choose UI style
+ccs ui                   # Choose UI style (single, dual, dot, slash, round bubble, powerline arrow, compact, unicode)
 ccs theme catppuccin     # Switch color theme (default, catppuccin, nord, tokyo)
 ccs delimiter /          # Set separator character
-ccs set <key> <val>      # Modify setting (e.g. ccs set showGitStatusStats true or ccs set lines 2)
+ccs set <key> <val>      # Modify setting (e.g. ccs set showRateLimitPace true or ccs set lines 2)
 ccs get [key]            # View effective setting value (e.g. ccs get fields)
 ccs config list          # List all settings, values, and customization status
+ccs export [file]        # Export active configuration to file or stdout
+ccs import <file>        # Import configuration file (with automatic backup)
+ccs reset [config|cache] # Reset configuration to default template or clear cache
 ccs preview              # Preview layouts and themes
 ccs doctor               # Inspect configuration, settings binding and git status
 ccs uninstall            # Remove statusline from Claude Code settings
@@ -188,7 +191,7 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "projectPathMode": "basename", // Project path mode: "basename" (folder only) or "relative" (Monorepo: repo:apps/web)
   "showApiDuration": false,    // Append pure API response generation duration to session_duration (e.g. 1h 24m (api: 12m))
 
-  // 4. Context window size limit (0 = auto-detect)
+  // 4. Context window size limit (0 = auto-detect, natively adapts to 200k & 1M extended windows)
   "contextWindowSize": 0,
 
   // 5. Cost calculation & proxy multiplier (scales Claude Code's total_cost_usd, not independent billing)
@@ -203,6 +206,7 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "rateLimitWindows": ["5h", "7d", "mo"],
   "showRateLimitCountdown": true,
   "showRateLimitTrend": false, // Show burn rate trend arrow (↑ fast / ↓ slow)
+  "showRateLimitPace": false,  // Show pacing burn alert (⚡ when burning ahead of window reset schedule)
 
   // 7. Visual styling
   "delimiter": "|",

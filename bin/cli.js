@@ -442,6 +442,106 @@ function listConfig() {
   console.log(`\n使用 ${CYAN}ccs set <key> <value>${RESET} 修改任意配置项。\n`);
 }
 
+function exportConfig(targetPath) {
+  const { configPath } = getClaudeSettingsPath();
+  let content = "";
+  if (fs.existsSync(configPath)) {
+    content = fs.readFileSync(configPath, "utf8");
+  } else {
+    content = DEFAULT_CONFIG_TEMPLATE;
+  }
+
+  if (targetPath) {
+    const resolved = path.resolve(process.cwd(), targetPath);
+    const dir = path.dirname(resolved);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(resolved, content, "utf8");
+    console.log(`${GREEN}${BOLD}✔ 配置已成功导出至:${RESET} ${CYAN}${resolved}${RESET}`);
+  } else {
+    process.stdout.write(content + "\n");
+  }
+}
+
+function importConfig(srcPath) {
+  if (!srcPath) {
+    console.log(`${YELLOW}用法: ccs import <配置文件路径>${RESET}`);
+    console.log(`例如: ccs import my-statusline-config.json`);
+    return;
+  }
+
+  const resolved = path.resolve(process.cwd(), srcPath);
+  if (!fs.existsSync(resolved)) {
+    console.log(`${RED}文件不存在: ${resolved}${RESET}`);
+    return;
+  }
+
+  try {
+    const raw = fs.readFileSync(resolved, "utf8");
+    const parsed = parseJsonWithComments(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.log(`${RED}无效的配置文件: 根对象必须为 JSON 对象${RESET}`);
+      return;
+    }
+
+    const { claudeDir, configPath } = getClaudeSettingsPath();
+    if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+
+    if (fs.existsSync(configPath)) {
+      const backupPath = `${configPath}.bak`;
+      fs.copyFileSync(configPath, backupPath);
+      console.log(`${DIM}  原配置已备份至: ${backupPath}${RESET}`);
+    }
+
+    fs.writeFileSync(configPath, raw, "utf8");
+    console.log(`${GREEN}${BOLD}✔ 配置文件导入成功！${RESET}`);
+    console.log(`  目标路径: ${CYAN}${configPath}${RESET}\n`);
+
+    const sample = {
+      workspace: { current_dir: path.resolve(__dirname, "..") },
+      model: { display_name: "claude-3-7-sonnet" },
+      context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+    };
+    console.log(`${BOLD}当前效果预览:${RESET}`);
+    console.log("  " + renderStatusline(sample).split("\n").join("\n  ") + "\n");
+  } catch (e) {
+    console.error(`${RED}导入配置失败: ${e.message}${RESET}`);
+  }
+}
+
+function resetConfig(type) {
+  const { claudeDir, configPath } = getClaudeSettingsPath();
+  const sub = String(type || "").toLowerCase();
+
+  if (sub === "cache") {
+    const cacheFile = path.join(claudeDir, ".git_cache.json");
+    if (fs.existsSync(cacheFile)) {
+      fs.unlinkSync(cacheFile);
+      console.log(`${GREEN}${BOLD}✔ Git 状态缓存已清除。${RESET}`);
+    } else {
+      console.log(`${DIM}未发现残留的 Git 状态缓存文件。${RESET}`);
+    }
+    return;
+  }
+
+  if (sub === "config" || !sub || sub === "all") {
+    if (fs.existsSync(configPath)) {
+      const backupPath = `${configPath}.bak`;
+      fs.copyFileSync(configPath, backupPath);
+      console.log(`${DIM}  当前配置已备份至: ${backupPath}${RESET}`);
+    }
+    fs.writeFileSync(configPath, DEFAULT_CONFIG_TEMPLATE, "utf8");
+    console.log(`${GREEN}${BOLD}✔ 配置已重置为默认模板！${RESET}`);
+    console.log(`  配置文件: ${CYAN}${configPath}${RESET}\n`);
+
+    const cacheFile = path.join(claudeDir, ".git_cache.json");
+    if (fs.existsSync(cacheFile)) {
+      try { fs.unlinkSync(cacheFile); } catch {}
+    }
+  } else {
+    console.log(`${YELLOW}用法: ccs reset [config | cache | all]${RESET}`);
+  }
+}
+
 function setTheme(newTheme) {
   const validThemes = ["default", "catppuccin", "nord", "tokyo"];
   if (!newTheme || !validThemes.includes(newTheme.toLowerCase())) {
@@ -735,6 +835,32 @@ function preview() {
         showGitStatusStats: true,
       },
     },
+    {
+      title: "13. Modern 1M Context & Rate Limit Pacing (1.0M window + ⚡burn pace alert)",
+      input: {
+        ...sampleInput,
+        context_window: {
+          context_window_size: 1000000,
+          total_input_tokens: 185000,
+          used_percentage: 18.5,
+        },
+        rate_limits: {
+          five_hour: { used_percentage: 82, resets_at: new Date(now + 4 * 3600 * 1000).toISOString() },
+        },
+      },
+      config: {
+        fields: ["model", "context", "rate_limit", "project", "git"],
+        showRateLimitPace: true,
+      },
+    },
+    {
+      title: "14. Round Bubble Preset (ccs ui round -> modern Nerd Font bubble style)",
+      input: sampleInput,
+      config: {
+        ...UI_PRESETS.round.config,
+        fields: ["model", "context", "cost", "project", "git"],
+      },
+    },
   ];
 
   scenarios.forEach(({ title, input, config }) => {
@@ -843,6 +969,9 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}set <key> <val>${RESET}  Set configuration property (e.g. ccs set showGitStatusStats true)
   ${CYAN}get [key]${RESET}        Read configuration property (e.g. ccs get theme)
   ${CYAN}config [list]${RESET}    List all configuration properties and their state
+  ${CYAN}export [file]${RESET}    Export configuration to file or stdout
+  ${CYAN}import <file>${RESET}    Import and apply configuration file (with automatic backup)
+  ${CYAN}reset [target]${RESET}   Reset configuration (config) or clear cache (cache)
   ${CYAN}ui [name]${RESET}        Interactive UI style picker & switcher (or apply by name/number)
   ${CYAN}theme <name>${RESET}     Set color theme (default, catppuccin, nord, tokyo)
   ${CYAN}delimiter <s>${RESET}    Set delimiter symbol (default: "|", e.g. "/" or "•")
@@ -896,6 +1025,12 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   setConfig(process.argv[3], process.argv[4]);
 } else if (arg === "get") {
   getConfig(process.argv[3]);
+} else if (arg === "export") {
+  exportConfig(process.argv[3]);
+} else if (arg === "import") {
+  importConfig(process.argv[3]);
+} else if (arg === "reset") {
+  resetConfig(process.argv[3]);
 } else if (arg === "list" || arg === "ls") {
   listConfig();
 } else if (arg === "config") {
@@ -903,6 +1038,12 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
     setConfig(process.argv[4], process.argv[5]);
   } else if (subArg === "get") {
     getConfig(process.argv[4]);
+  } else if (subArg === "export") {
+    exportConfig(process.argv[4]);
+  } else if (subArg === "import") {
+    importConfig(process.argv[4]);
+  } else if (subArg === "reset") {
+    resetConfig(process.argv[4]);
   } else if (subArg === "init") {
     initConfig();
   } else if (subArg === "list" || subArg === "ls" || !subArg) {

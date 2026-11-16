@@ -890,3 +890,93 @@ test("cli set, get, and config commands update and retrieve configuration", () =
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("context renderer supports 1M token extended context window natively", () => {
+  const out = renderStatusline(
+    {
+      context_window: {
+        context_window_size: 1000000,
+        total_input_tokens: 125000,
+        used_percentage: 12.5,
+      },
+    },
+    { colors: false, fields: ["context"] }
+  );
+  assert.ok(out.includes("125.0k/1.0M"), `Expected 125.0k/1.0M, got: ${out}`);
+  assert.ok(out.includes("13%"), `Expected 13%, got: ${out}`);
+});
+
+test("rate_limit renderer displays pacing burn alert when burning ahead of schedule", () => {
+  const now = Date.now();
+  // 5h window = 18000s. Reset in 4.5 hours (16200s), meaning only 1800s (10%) has elapsed.
+  const resetIn4h30m = new Date(now + 4.5 * 3600 * 1000).toISOString();
+
+  const input = {
+    rate_limits: {
+      five_hour: {
+        used_percentage: 75,
+        resets_at: resetIn4h30m,
+      },
+    },
+  };
+
+  // With showRateLimitPace: true -> should append ⚡ alert
+  const paceOut = renderStatusline(input, {
+    colors: false,
+    fields: ["rate_limit"],
+    showRateLimitPace: true,
+  });
+  assert.ok(paceOut.includes("5h:75%⚡"), `Expected 5h:75%⚡ in output, got: ${paceOut}`);
+
+  // When burning slowly / normal (e.g. 10% used after 10% time elapsed) -> no ⚡
+  const safeInput = {
+    rate_limits: {
+      five_hour: {
+        used_percentage: 10,
+        resets_at: resetIn4h30m,
+      },
+    },
+  };
+  const safeOut = renderStatusline(safeInput, {
+    colors: false,
+    fields: ["rate_limit"],
+    showRateLimitPace: true,
+  });
+  assert.ok(!safeOut.includes("⚡"), `Expected no ⚡ in safe output, got: ${safeOut}`);
+});
+
+test("UI_PRESETS contains modern round and powerline presets", () => {
+  const { UI_PRESETS } = require("../lib/config.js");
+  assert.ok(UI_PRESETS.round, "round preset should exist");
+  assert.equal(UI_PRESETS.round.config.delimiter, "  ");
+
+  assert.ok(UI_PRESETS.powerline, "powerline preset should exist");
+  assert.equal(UI_PRESETS.powerline.config.delimiter, "  ");
+});
+
+test("cli export, import, and reset commands manage configuration files safely", () => {
+  const home = makeSandboxHome("ccs-export-test-");
+  try {
+    // 1. Set a custom property
+    runCli(home, "set", "lines", "2");
+
+    // 2. Export config to a file
+    const exportFile = path.join(home, "exported-config.json");
+    runCli(home, "export", exportFile);
+    assert.ok(fs.existsSync(exportFile), "Exported file should exist");
+    const exportedRaw = fs.readFileSync(exportFile, "utf8");
+    assert.ok(exportedRaw.includes('"lines": 2'), "Exported config should contain custom property");
+
+    // 3. Reset config back to default
+    runCli(home, "reset", "config");
+    const resetGet = stripAnsi(runCli(home, "get", "lines"));
+    assert.ok(resetGet.includes("lines: 1"), `Expected lines: 1 after reset, got: ${resetGet}`);
+
+    // 4. Import the saved config
+    runCli(home, "import", exportFile);
+    const importedGet = stripAnsi(runCli(home, "get", "lines"));
+    assert.ok(importedGet.includes("lines: 2"), `Expected lines: 2 after import, got: ${importedGet}`);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
