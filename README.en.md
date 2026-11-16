@@ -77,7 +77,10 @@ ccs export [file]        # Export active configuration to file or stdout
 ccs import <file>        # Import configuration file (with automatic backup)
 ccs reset [config|cache] # Reset configuration to default template or clear cache
 ccs preview              # Preview layouts and themes
-ccs doctor               # Inspect configuration, settings binding and git status
+ccs doctor               # Inspect configuration, settings binding, git responsiveness and latency benchmark
+ccs export [file]        # Export active configuration to JSONC file (or stdout)
+ccs import <file>        # Import configuration file (with automatic .bak backup)
+ccs reset [config|cache] # Reset configuration to default template or clear Git status cache
 ccs uninstall            # Remove statusline from Claude Code settings
 ```
 
@@ -138,11 +141,13 @@ ccs delimiter "•"   # Bullet: claude-3-7-sonnet • [██░░░░░░]
 ccs delimiter "|"   # Pipe (default)
 ```
 
-### Command-Line Configuration (ccs set / get / config)
+### Command-Line Configuration (ccs set / get / toggle / config)
 
 Modify and inspect any configuration property directly from the terminal without editing JSON files by hand (comments and formatting are safely preserved):
 
 ```bash
+ccs toggle todo                      # Instantly toggle todo checklist progress on/off
+ccs toggle cost                      # Instantly toggle session cost display on/off
 ccs set showGitStatusStats true       # Enable fine-grained Git file stats (+2 *1 ?3)
 ccs set lines 2                      # Switch to dual-line layout (great for split panes)
 ccs set projectPathMode relative     # Switch to Monorepo relative directory mode
@@ -166,7 +171,10 @@ On first run or after `ccs install`, an annotated config file is generated at `~
     "context",      // Context window tokens and progress bar
     "project",      // Current directory name
     "git",          // Git branch and dirty marker
-    // "tokens",    // Token breakdown (e.g. I:12k C:320k O:18k)
+    // "fast",      // Fast mode indicator (e.g. ⚡fast, toggled via /fast)
+    // "todo",      // Task / Todo checklist progress (e.g. todo: 2/5 or ✓ 5/5)
+    // "compact",   // Auto-compact alert badge (e.g. ⚠️compact when context reaches 80%)
+    // "tokens",    // Token breakdown (e.g. I:12k C:320k T:8k O:3k, supports reasoning tokens)
     // "session_duration", // Elapsed session runtime (e.g. 38m or 1h 24m)
     // "api_duration",     // Pure API response generation duration (e.g. api:8m)
     // "cost",      // Session cost (scales Claude Code's total_cost_usd by proxy multiplier & exchange rate)
@@ -189,10 +197,14 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "maxBranchLength": 0,        // Max branch display length (0 disables; >0 middle-truncates e.g. feat/auth...flow)
   "gitCacheTtl": 2,            // Cache duration in seconds (0 = disabled)
   "projectPathMode": "basename", // Project path mode: "basename" (folder only) or "relative" (Monorepo: repo:apps/web)
+  "clickableProjectPath": false, // Enable OSC 8 terminal hyperlinks for project path (Ctrl/Cmd click to open in file manager/terminal)
+  "clickableRepoPath": false,    // Enable OSC 8 terminal hyperlinks for remote repository (opens in browser)
   "showApiDuration": false,    // Append pure API response generation duration to session_duration (e.g. 1h 24m (api: 12m))
 
   // 4. Context window size limit (0 = auto-detect, natively adapts to 200k & 1M extended windows)
   "contextWindowSize": 0,
+  "showCompactAlert": false,   // Show ⚠️compact alert badge next to progress bar when usage reaches threshold
+  "compactAlertThreshold": 80, // Context percentage threshold for compact alert (default: 80)
 
   // 5. Cost calculation & proxy multiplier (scales Claude Code's total_cost_usd, not independent billing)
   "currency": "USD",          // "USD", "CNY", or "BOTH"
@@ -237,8 +249,11 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 | `model` | Model name (cleans date suffixes, supports aliases) | Enabled | `claude-3-7-sonnet` or `Sonnet 3.7` |
 | `context` | Context window usage with progress bar | Enabled | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | Current directory name (supports Monorepo relative paths and multi-dir +N dirs badge) | Enabled | `your-project` or `repo:apps/web (+2 dirs)` |
-| `git` | Git branch and dirty marker (cached, with middle-truncation, worktrees, and detailed staged +N / unstaged *N / untracked ?N stats) | Enabled | `main*` or `main +2 *1 ?3` |
-| `tokens` | Token breakdown (Input / Cache / Output) | Optional | `I:12k C:320k O:18k` |
+| `git` | Git branch and dirty marker (cached, with middle-truncation, worktrees, staged/unstaged/untracked counts, and (merging)/(rebasing)/(cherry-pick) danger warnings) | Enabled | `main*` or `main (rebasing)*` |
+| `fast` | Fast mode status indicator (displays ⚡fast when fast_mode is enabled, toggled by `/fast`) | Optional | `⚡fast` |
+| `todo` | Task / Todo checklist live progress and counter (auto-hidden when session has no tasks) | Optional | `todo: 2/5` or `✓ 5/5 todos` |
+| `compact` | Auto-compact context alert badge (warns when reaching 80% to prompt session cleanup before degradation) | Optional | `⚠️compact` |
+| `tokens` | Token breakdown (Input / Cache / Thinking reasoning / Output) | Optional | `I:12k C:320k T:8k O:3k` |
 | `session_duration` | Elapsed session runtime duration (optional API duration display) | Optional | `38m` or `1h 24m (api: 12m)` |
 | `api_duration` | Pure LLM generation and thinking response duration | Optional | `api:12m` |
 | `speed` | Model generation throughput (Tokens per second) | Optional | `85 t/s` |

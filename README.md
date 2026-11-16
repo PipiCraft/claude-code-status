@@ -77,7 +77,10 @@ ccs export [file]        # 导出当前全部定制配置到文件或终端输�
 ccs import <file>        # 从外部文件导入配置 (自动创建备份)
 ccs reset [config|cache] # 重置配置为默认模板或清除 Git 状态缓存
 ccs preview              # 终端全场景效果预览
-ccs doctor               # 检查配置合法性、Settings绑定与Git运行状态
+ccs doctor               # 检查配置合法性、Settings绑定、Git运行状态与渲染延迟基准
+ccs export [file]        # 导出当前生效配置为 JSONC 文件 (或输出至标准输出)
+ccs import <file>        # 导入并应用配置文件 (自动保留 .bak 备份)
+ccs reset [config|cache] # 重置配置为默认模板或清除 Git 状态缓存
 ccs uninstall            # 从 Claude Code 设置中安全移除状态栏配置
 ```
 
@@ -138,12 +141,14 @@ ccs delimiter "•"   # 圆点分隔: claude-3-7-sonnet • [██░░░░�
 ccs delimiter "|"   # 竖线分隔 (默认)
 ```
 
-### 命令行快速配置 (ccs set / get / config)
+### 命令行快速配置 (ccs set / get / toggle / config)
 
 您无需手动编辑 JSON 文件，可直接通过 CLI 命令修改与查看任意配置项（自动保留注释与结构格式）：
 
 ```bash
-ccs set showGitStatusStats true       # 开启 Git 细分文件计数 (+2 *1 ?3)
+ccs toggle todo                      # 一键开启/关闭 todo 待办进度展示 (免繁琐配置)
+ccs toggle cost                      # 一键开启/关闭 会话费用展示
+ccs set showGitStatusStats true      # 开启 Git 细分文件计数 (+2 *1 ?3)
 ccs set lines 2                      # 切换为双行模式 (窄屏/分屏极佳)
 ccs set projectPathMode relative     # 切换为 Monorepo 相对路径模式
 ccs set fields model,context,speed,repo,git # 快速自定义展示字段
@@ -167,7 +172,10 @@ ccs config list                      # 列出全部配置项及其是否被自�
     "context",      // 上下文使用量及进度条
     "project",      // 当前项目目录名
     "git",          // Git 分支与修改标记
-    // "tokens",    // Token 消耗明细 (例如: I:12k C:320k O:18k)
+    // "fast",      // Fast 极速模式标记 (例如: ⚡fast，对应 /fast 切换)
+    // "todo",      // 任务与待办清单进度 (例如: todo: 2/5 或 ✓ 5/5)
+    // "compact",   // 上下文满载压缩预警 (达到 80% 时显示 ⚠️compact)
+    // "tokens",    // Token 消耗明细 (例如: I:12k C:320k T:8k O:3k，支持思考Token)
     // "session_duration", // 会话运行时间 (例如: 38m 或 1h 24m)
     // "api_duration",     // 纯 API 响应等待耗时 (例如: api:8m)
     // "cost",      // 会话费用 (基于 Claude Code 的 total_cost_usd，按中转倍率与汇率计算实际支出)
@@ -193,10 +201,14 @@ ccs config list                      # 列出全部配置项及其是否被自�
   "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
   "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
+  "clickableProjectPath": false, // 是否为项目路径启用终端 OSC 8 超链接 (支持 Ctrl/Cmd 点击跳转)
+  "clickableRepoPath": false,    // 是否为仓库标识启用 GitHub/GitLab 终端超链接
   "showApiDuration": false,    // 是否在 session_duration 后附带显示 API 响应耗时 (例如: 1h 24m (api: 12m))
 
   // 4. 上下文上限 Token 数 (0 为原生自动感知，原生自适应 200k 及 1M 扩展上下文)
   "contextWindowSize": 0,
+  "showCompactAlert": false,   // 上下文达到阈值时是否在 context 进度条旁追加 ⚠️compact 告警
+  "compactAlertThreshold": 80, // 触发 compact 预警的百分比阈值 (默认: 80)
 
   // 5. 费用与汇率计算 (基于 Claude Code 提供的 total_cost_usd 结合中转倍率折算，非独立统计 Token 账单)
   "currency": "USD",          // 货币单位: "USD", "CNY", 或 "BOTH" (双币种同时显示)
@@ -241,8 +253,11 @@ ccs config list                      # 列出全部配置项及其是否被自�
 | `model` | AI 模型名称 (自动清理日期，支持别名) | 开启 | `claude-3-7-sonnet` 或 `Sonnet 3.7` |
 | `context` | 上下文使用量及进度条 (支持反向块读取) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | 当前工作区项目目录名 (支持 Monorepo 相对路径与多目录 +N dirs 标识) | 开启 | `your-project` 或 `repo:apps/web (+2 dirs)` |
-| `git` | Git 分支与状态 (带磁盘 TTL 短时缓存、超长分支省略、Worktree 标识与细分暂存 +N / 未暂存 *N / 未跟踪 ?N) | 开启 | `main*` 或 `main +2 *1 ?3` |
-| `tokens` | Token 消耗明细 (Input / Cache / Output) | 可选 | `I:12k C:320k O:18k` |
+| `git` | Git 分支与状态 (带磁盘缓存、超长省略、Worktree、细分暂存 +N/*N/?N 以及 (merging)/(rebasing)/(cherry-pick) 危险状态提示) | 开启 | `main*` 或 `main (rebasing)*` |
+| `fast` | Fast 极速模式状态指示 (检测到 fast_mode 时显示 ⚡fast，原生对应 `/fast`) | 可选 | `⚡fast` |
+| `todo` | Task / Todo 任务清单实时进度与计数 (会话无待办时自动隐形) | 可选 | `todo: 2/5` 或 `✓ 5/5 todos` |
+| `compact` | 上下文满载压缩预警 (达到 80% 阈值时提示，提醒及时整理防性能衰减) | 可选 | `⚠️compact` |
+| `tokens` | Token 消耗明细 (Input / Cache / Thinking 思考 / Output) | 可选 | `I:12k C:320k T:8k O:3k` |
 | `session_duration` | 会话持续运行时间 (支持可选展示 API 耗时) | 可选 | `38m` 或 `1h 24m (api: 12m)` |
 | `api_duration` | 纯等待 Claude API 思考生成的响应耗时 | 可选 | `api:12m` |
 | `speed` | 模型生成吞吐速率 (Tokens per second) | 可选 | `85 t/s` |

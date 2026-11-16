@@ -699,9 +699,10 @@ test("cli doctor command runs successfully and inspects configuration", () => {
     env: { ...process.env, HOME: sandboxHome, USERPROFILE: sandboxHome },
   });
   assert.ok(out.includes("Health Doctor"));
-  assert.ok(out.includes("[1/3] Claude Code Settings Check"));
-  assert.ok(out.includes("[2/3] Configuration File Check"));
-  assert.ok(out.includes("[3/3] Git Environment & Responsiveness"));
+  assert.ok(out.includes("[1/4] Claude Code Settings Check"));
+  assert.ok(out.includes("[2/4] Configuration File Check"));
+  assert.ok(out.includes("[3/4] Git Environment & Responsiveness"));
+  assert.ok(out.includes("[4/4] Pipeline End-to-End Latency Benchmark"));
 });
 
 test("project renderer detects added_dirs and displays (+N dirs) badge", () => {
@@ -976,6 +977,252 @@ test("cli export, import, and reset commands manage configuration files safely",
     runCli(home, "import", exportFile);
     const importedGet = stripAnsi(runCli(home, "get", "lines"));
     assert.ok(importedGet.includes("lines: 2"), `Expected lines: 2 after import, got: ${importedGet}`);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("fast renderer displays ⚡fast when fast_mode is true and hides when false/missing", () => {
+  const on = renderStatusline({ fast_mode: true }, { colors: false, fields: ["fast"] });
+  assert.equal(on, "⚡fast");
+
+  const off = renderStatusline({ fast_mode: false }, { colors: false, fields: ["fast"] });
+  assert.equal(off, "");
+
+  const missing = renderStatusline({}, { colors: false, fields: ["fast"] });
+  assert.equal(missing, "");
+});
+
+test("project and repo renderers support OSC 8 hyperlinks when enabled", () => {
+  const input = {
+    workspace: {
+      project_dir: "/path/to/my-project",
+      current_dir: "/path/to/my-project",
+      repo: { host: "github.com", owner: "PipiCraft", name: "claude-code-status" },
+    },
+  };
+
+  // With clickable disabled (default)
+  const normal = renderStatusline(input, { colors: false, fields: ["project", "repo"] });
+  assert.ok(!normal.includes("\x1b]8;;"), "Should not contain OSC 8 escape sequence when disabled");
+  assert.ok(normal.includes("my-project"), "Should contain project name");
+  assert.ok(normal.includes("PipiCraft/claude-code-status"), "Should contain repo name");
+
+  // With clickable enabled
+  const linked = renderStatusline(input, {
+    colors: false,
+    fields: ["project", "repo"],
+    clickableProjectPath: true,
+    clickableRepoPath: true,
+  });
+  assert.ok(linked.includes("\x1b]8;;file:///path/to/my-project\x1b\\my-project\x1b]8;;\x1b\\"), "Project should have file:// OSC 8 link");
+  assert.ok(linked.includes("\x1b]8;;https://github.com/PipiCraft/claude-code-status\x1b\\PipiCraft/claude-code-status\x1b]8;;\x1b\\"), "Repo should have https:// OSC 8 link");
+});
+
+test("renderStatusline handles lines auto with payload terminal_width", () => {
+  const input = {
+    terminal_width: 35,
+    workspace: { current_dir: "/path/to/very/long/project/name/that/takes/space" },
+    model: { display_name: "claude-3-7-sonnet" },
+    context_window: { total_input_tokens: 50000, context_window_size: 200000 },
+  };
+  const out = renderStatusline(input, {
+    colors: false,
+    lines: "auto",
+    fields: ["model", "context", "project"],
+  });
+  assert.ok(out.includes("\n"), "Should wrap into multiple lines when terminal_width is narrow");
+});
+
+test("tokens renderer formats thinking_tokens as T:xx and handles missing or zero gracefully", () => {
+  const withThinking = {
+    context_window: {
+      current_usage: {
+        input_tokens: 15000,
+        cache_read_input_tokens: 60000,
+        thinking_tokens: 8500,
+        output_tokens: 1200,
+      },
+    },
+  };
+  const outWith = renderStatusline(withThinking, { colors: false, fields: ["tokens"] });
+  assert.ok(outWith.includes("T:9k") || outWith.includes("T:8.5k") || outWith.includes("T:8k"), `Expected T: in output, got: ${outWith}`);
+  assert.ok(outWith.includes("I:15k"), "Should include I:15k");
+  assert.ok(outWith.includes("C:60k"), "Should include C:60k");
+
+  const withoutThinking = {
+    context_window: {
+      current_usage: {
+        input_tokens: 15000,
+        cache_read_input_tokens: 60000,
+        output_tokens: 1200,
+      },
+    },
+  };
+  const outWithout = renderStatusline(withoutThinking, { colors: false, fields: ["tokens"] });
+  assert.ok(!outWithout.includes("T:"), "Should not include T: when thinking_tokens is absent");
+});
+
+test("todo renderer formats completed vs in-progress and all complete states", () => {
+  // In progress
+  const inProgInput = {
+    todos: [
+      { content: "Step 1", status: "completed" },
+      { content: "Step 2", status: "in_progress" },
+      { content: "Step 3", status: "pending" },
+    ],
+  };
+  const inProgOut = renderStatusline(inProgInput, { colors: false, fields: ["todo"] });
+  assert.equal(inProgOut, "todo: 1/3");
+
+  // All completed
+  const allDoneInput = {
+    todos: [
+      { content: "Step 1", status: "completed" },
+      { content: "Step 2", status: "completed" },
+    ],
+  };
+  const allDoneOut = renderStatusline(allDoneInput, { colors: false, fields: ["todo"] });
+  assert.equal(allDoneOut, "✓ 2/2 todos");
+
+  // Empty or missing
+  const emptyOut = renderStatusline({ todos: [] }, { colors: false, fields: ["todo"] });
+  assert.equal(emptyOut, "");
+});
+
+test("readLastTodosFromTranscript correctly parses JSONL transcript files", () => {
+  const { readLastTodosFromTranscript } = require("../lib/utils.js");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-todos-test-"));
+  const transcriptFile = path.join(tmp, "transcript.jsonl");
+
+  try {
+    const lines = [
+      JSON.stringify({ type: "user", message: { content: "Refactor code" } }),
+      JSON.stringify({
+        type: "tool_use",
+        name: "TodoWrite",
+        input: {
+          todos: [
+            { content: "Write tests", status: "completed" },
+            { content: "Refactor database", status: "completed" },
+            { content: "Verify build", status: "in_progress" },
+            { content: "Deploy", status: "pending" },
+          ],
+        },
+      }),
+      JSON.stringify({ type: "assistant", message: { content: "I have started working on this." } }),
+    ];
+    fs.writeFileSync(transcriptFile, lines.join("\n"), "utf8");
+
+    const parsed = readLastTodosFromTranscript(transcriptFile);
+    assert.ok(parsed, "Should parse todos from transcript");
+    assert.equal(parsed.total, 4);
+    assert.equal(parsed.completed, 2);
+    assert.equal(parsed.inProgressTitle, "Verify build");
+
+    // Also test rendering from transcript_path
+    const out = renderStatusline({ transcript_path: transcriptFile }, { colors: false, fields: ["todo"] });
+    assert.equal(out, "todo: 2/4");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("git renderer detects merging, rebasing, and cherry-pick states", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-git-op-test-"));
+  try {
+    execFileSync("git", ["init"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "test"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmp, stdio: "ignore" });
+    fs.writeFileSync(path.join(tmp, "init.txt"), "hello");
+    execFileSync("git", ["add", "."], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: tmp, stdio: "ignore" });
+
+    const gitDir = path.join(tmp, ".git");
+
+    // 1. Merging state
+    fs.writeFileSync(path.join(gitDir, "MERGE_HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+    const mergeOut = renderStatusline({ workspace: { current_dir: tmp } }, { colors: false, fields: ["git"] });
+    assert.ok(mergeOut.includes("(merging)"), `Expected (merging) in output, got: ${mergeOut}`);
+    fs.unlinkSync(path.join(gitDir, "MERGE_HEAD"));
+
+    // 2. Rebasing state
+    const rebaseDir = path.join(gitDir, "rebase-merge");
+    fs.mkdirSync(rebaseDir);
+    const rebaseOut = renderStatusline({ workspace: { current_dir: tmp } }, { colors: false, fields: ["git"] });
+    assert.ok(rebaseOut.includes("(rebasing)"), `Expected (rebasing) in output, got: ${rebaseOut}`);
+    fs.rmdirSync(rebaseDir);
+
+    // 3. Cherry-pick state
+    fs.writeFileSync(path.join(gitDir, "CHERRY_PICK_HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+    const cpOut = renderStatusline({ workspace: { current_dir: tmp } }, { colors: false, fields: ["git"] });
+    assert.ok(cpOut.includes("(cherry-pick)"), `Expected (cherry-pick) in output, got: ${cpOut}`);
+    fs.unlinkSync(path.join(gitDir, "CHERRY_PICK_HEAD"));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("compact alert renders warning when context percentage is >= threshold", () => {
+  const highContext = {
+    context_window: {
+      total_input_tokens: 170000,
+      context_window_size: 200000,
+      used_percentage: 85,
+    },
+  };
+
+  // With showCompactAlert enabled on context field
+  const alertOut = renderStatusline(highContext, {
+    colors: false,
+    fields: ["context"],
+    showCompactAlert: true,
+    compactAlertThreshold: 80,
+  });
+  assert.ok(alertOut.includes("⚠️compact"), `Expected ⚠️compact in output, got: ${alertOut}`);
+
+  // Standalone compact field at 85%
+  const standaloneAlert = renderStatusline(highContext, {
+    colors: false,
+    fields: ["compact"],
+    compactAlertThreshold: 80,
+  });
+  assert.equal(standaloneAlert, "⚠️compact");
+
+  // Safe context (50%) -> standalone returns empty
+  const safeContext = {
+    context_window: {
+      total_input_tokens: 100000,
+      context_window_size: 200000,
+      used_percentage: 50,
+    },
+  };
+  const standaloneSafe = renderStatusline(safeContext, {
+    colors: false,
+    fields: ["compact"],
+    compactAlertThreshold: 80,
+  });
+  assert.equal(standaloneSafe, "");
+});
+
+test("cli toggle command adds and removes fields from configuration dynamically", () => {
+  const home = makeSandboxHome("ccs-toggle-test-");
+  try {
+    // 1. Initial fields check (defaults: model, context, project, git)
+    const initialGet = stripAnsi(runCli(home, "get", "fields"));
+    assert.ok(!initialGet.includes("todo"), "Initial fields should not contain todo");
+
+    // 2. Toggle on "todo"
+    const toggleOnOut = stripAnsi(runCli(home, "toggle", "todo"));
+    assert.ok(toggleOnOut.includes("已启用字段"), "Should report field enabled");
+    const afterAdd = stripAnsi(runCli(home, "get", "fields"));
+    assert.ok(afterAdd.includes("todo"), "Fields should now contain todo");
+
+    // 3. Toggle off "todo"
+    const toggleOffOut = stripAnsi(runCli(home, "toggle", "todo"));
+    assert.ok(toggleOffOut.includes("已停用字段"), "Should report field disabled");
+    const afterRemove = stripAnsi(runCli(home, "get", "fields"));
+    assert.ok(!afterRemove.includes("todo"), "Fields should no longer contain todo");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

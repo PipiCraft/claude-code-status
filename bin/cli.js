@@ -399,6 +399,60 @@ function setConfig(key, rawValue) {
   }
 }
 
+function toggleField(targetField) {
+  if (!targetField) {
+    console.log(`${YELLOW}用法: ccs toggle <字段名称>${RESET}`);
+    console.log(`例如: ccs toggle todo, ccs toggle cost, ccs toggle fast`);
+    console.log(`运行 ${CYAN}ccs help${RESET} 查看所有支持的字段列表。`);
+    return;
+  }
+
+  const field = targetField.trim().toLowerCase();
+  const { configPath } = getClaudeSettingsPath();
+  initConfig(false);
+
+  try {
+    let raw = fs.readFileSync(configPath, "utf8");
+    const parsed = parseJsonWithComments(raw);
+    const currentFields = Array.isArray(parsed?.fields) ? [...parsed.fields] : [...DEFAULT_CONFIG.fields];
+
+    const idx = currentFields.indexOf(field);
+    let action = "enabled";
+    if (idx >= 0) {
+      currentFields.splice(idx, 1);
+      action = "disabled";
+    } else {
+      currentFields.push(field);
+      action = "enabled";
+    }
+
+    raw = replaceJsoncProperty(raw, "fields", currentFields);
+    parseJsonWithComments(raw);
+
+    fs.writeFileSync(configPath, raw, "utf8");
+    const actionText = action === "enabled" ? `${GREEN}${BOLD}✔ 已启用字段:${RESET}` : `${YELLOW}${BOLD}✖ 已停用字段:${RESET}`;
+    console.log(`\n${actionText} ${CYAN}${field}${RESET}`);
+    console.log(`  当前生效字段 (${currentFields.length}): ${CYAN}${currentFields.join(", ")}${RESET}\n`);
+
+    const sample = {
+      workspace: { current_dir: path.resolve(__dirname, "..") },
+      model: { display_name: "claude-3-7-sonnet" },
+      context_window: {
+        total_input_tokens: 58000,
+        context_window_size: 200000,
+        current_usage: { input_tokens: 10000, thinking_tokens: 4000, output_tokens: 2000 },
+      },
+      cost: { total_cost_usd: 0.185 },
+      fast_mode: true,
+      todos: [{ status: "completed" }, { status: "in_progress" }],
+    };
+    console.log(`${BOLD}当前效果预览:${RESET}`);
+    console.log("  " + renderStatusline(sample).split("\n").join("\n  ") + "\n");
+  } catch (e) {
+    console.error(`${RED}切换字段失败: ${e.message}${RESET}`);
+  }
+}
+
 function getConfig(key) {
   if (!key) {
     listConfig();
@@ -861,6 +915,48 @@ function preview() {
         fields: ["model", "context", "cost", "project", "git"],
       },
     },
+    {
+      title: "15. Fast Mode & Hyperlinks (fast_mode: true + clickable paths)",
+      input: {
+        ...sampleInput,
+        fast_mode: true,
+        workspace: {
+          ...sampleInput.workspace,
+          repo: { host: "github.com", owner: "PipiCraft", name: "claude-code-status" },
+        },
+      },
+      config: {
+        fields: ["model", "fast", "context", "cost", "project", "repo", "git"],
+        clickableProjectPath: true,
+        clickableRepoPath: true,
+      },
+    },
+    {
+      title: "16. Todo Tracker, Thinking Tokens & Compact Alert (todo + T:8.5k + ⚠️compact)",
+      input: {
+        ...sampleInput,
+        todos: [
+          { content: "Setup database", status: "completed" },
+          { content: "Add migration", status: "completed" },
+          { content: "Run unit tests", status: "in_progress" },
+        ],
+        context_window: {
+          ...sampleInput.context_window,
+          context_window_size: 200000,
+          total_input_tokens: 168000,
+          current_usage: {
+            input_tokens: 12000,
+            cache_read_input_tokens: 140000,
+            thinking_tokens: 8500,
+            output_tokens: 2500,
+          },
+        },
+      },
+      config: {
+        fields: ["model", "context", "todo", "tokens", "cost", "project", "git"],
+        showCompactAlert: true,
+      },
+    },
   ];
 
   scenarios.forEach(({ title, input, config }) => {
@@ -878,7 +974,7 @@ function doctor() {
   const statuslinePath = path.resolve(__dirname, "statusline.js").replace(/\\/g, "/");
 
   // 1. Settings check
-  console.log(`${BOLD}[1/3] Claude Code Settings Check (~/.claude/settings.json):${RESET}`);
+  console.log(`${BOLD}[1/4] Claude Code Settings Check (~/.claude/settings.json):${RESET}`);
   if (!fs.existsSync(settingsPath)) {
     console.log(`  ${YELLOW}⚠️  settings.json not found at ${settingsPath}${RESET}`);
     console.log(`     Run ${CYAN}ccs install${RESET} to configure it.`);
@@ -907,7 +1003,7 @@ function doctor() {
   }
 
   // 2. Configuration check
-  console.log(`\n${BOLD}[2/3] Configuration File Check (~/.claude/statusline.config.json):${RESET}`);
+  console.log(`\n${BOLD}[2/4] Configuration File Check (~/.claude/statusline.config.json):${RESET}`);
   if (!fs.existsSync(configPath)) {
     console.log(`  ${YELLOW}⚠️  statusline.config.json not found (using defaults)${RESET}`);
     console.log(`     Run ${CYAN}ccs init-config${RESET} to generate one with full comments.`);
@@ -931,7 +1027,7 @@ function doctor() {
   }
 
   // 3. Git Environment & Response Check
-  console.log(`\n${BOLD}[3/3] Git Environment & Responsiveness:${RESET}`);
+  console.log(`\n${BOLD}[3/4] Git Environment & Responsiveness:${RESET}`);
   const startGit = Date.now();
   const gitOut = readGitStatus(process.cwd(), 0);
   const gitMs = Date.now() - startGit;
@@ -942,6 +1038,32 @@ function doctor() {
     const firstLine = gitOut.split("\n")[0] || "";
     console.log(`    Branch state: ${DIM}${firstLine}${RESET}`);
   }
+
+  // 4. Pipeline End-to-End Latency Benchmark
+  console.log(`\n${BOLD}[4/4] Pipeline End-to-End Latency Benchmark:${RESET}`);
+  const benchPayload = {
+    workspace: { current_dir: process.cwd() },
+    model: { display_name: "claude-3-7-sonnet" },
+    context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+    cost: { total_cost_usd: 0.125 },
+    rate_limits: { five_hour: { used_percentage: 45 } },
+  };
+  renderStatusline(benchPayload);
+  const benchRuns = 10;
+  const startHr = process.hrtime.bigint();
+  for (let i = 0; i < benchRuns; i++) {
+    renderStatusline(benchPayload);
+  }
+  const endHr = process.hrtime.bigint();
+  const avgMs = Number(endHr - startHr) / (benchRuns * 1_000_000);
+  const formattedAvg = avgMs.toFixed(2);
+  let speedRating = `${GREEN}⚡ Ultra-fast (< 3ms)${RESET}`;
+  if (avgMs > 10) {
+    speedRating = `${YELLOW}Moderate (${formattedAvg}ms)${RESET}`;
+  } else if (avgMs > 5) {
+    speedRating = `${CYAN}Fast (${formattedAvg}ms)${RESET}`;
+  }
+  console.log(`  ${GREEN}✔ Render latency:${RESET} ~${formattedAvg}ms/op (avg of ${benchRuns} runs) - ${speedRating}`);
 
   console.log();
   if (hasError) {
@@ -968,6 +1090,7 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}doctor${RESET}           Check installation health, settings and config integrity
   ${CYAN}set <key> <val>${RESET}  Set configuration property (e.g. ccs set showGitStatusStats true)
   ${CYAN}get [key]${RESET}        Read configuration property (e.g. ccs get theme)
+  ${CYAN}toggle <field>${RESET}   Toggle a field on/off in configuration (e.g. ccs toggle todo)
   ${CYAN}config [list]${RESET}    List all configuration properties and their state
   ${CYAN}export [file]${RESET}    Export configuration to file or stdout
   ${CYAN}import <file>${RESET}    Import and apply configuration file (with automatic backup)
@@ -986,6 +1109,9 @@ ${BOLD}DEFAULT FIELDS:${RESET}
   ${GREEN}git${RESET}              Git branch and dirty marker (*)
 
 ${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json or use ccs set fields ...):${RESET}
+  ${CYAN}fast${RESET}                 Fast mode indicator (⚡fast, toggled by /fast)
+  ${CYAN}todo${RESET}                 Task / Todo checklist progress (e.g. todo: 2/5 or ✓ 5/5)
+  ${CYAN}compact${RESET}              Auto-compact alert badge (⚠️compact when context >= 80%)
   ${CYAN}cost${RESET}                 Session cost in USD / CNY (with custom pricing multiplier)
   ${CYAN}rate_limit${RESET}           5-hour, 7-day, and monthly quota with reset countdown
   ${CYAN}cache${RESET}                Prompt cache hit rate (e.g. Cache:92%)
@@ -1025,6 +1151,8 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   setConfig(process.argv[3], process.argv[4]);
 } else if (arg === "get") {
   getConfig(process.argv[3]);
+} else if (arg === "toggle" || arg === "t") {
+  toggleField(process.argv[3]);
 } else if (arg === "export") {
   exportConfig(process.argv[3]);
 } else if (arg === "import") {
@@ -1038,6 +1166,8 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
     setConfig(process.argv[4], process.argv[5]);
   } else if (subArg === "get") {
     getConfig(process.argv[4]);
+  } else if (subArg === "toggle" || subArg === "t") {
+    toggleField(process.argv[4]);
   } else if (subArg === "export") {
     exportConfig(process.argv[4]);
   } else if (subArg === "import") {

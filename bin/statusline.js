@@ -136,6 +136,8 @@ function renderStatusline(input = {}, customConfig = {}) {
     const singleLine = renderFieldList(activeFields, context, delimiter);
     const cols =
       Number(config.terminalWidth) ||
+      Number(input?.terminal_width) ||
+      Number(input?.columns) ||
       process.stdout.columns ||
       process.stderr.columns ||
       Number(process.env.COLUMNS) ||
@@ -168,13 +170,14 @@ function renderStatusline(input = {}, customConfig = {}) {
  */
 function run() {
   let raw = "";
+  let finished = false;
   process.stdin.setEncoding("utf8");
 
-  process.stdin.on("data", (chunk) => {
-    raw += chunk;
-  });
+  const complete = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(watchdogTimer);
 
-  process.stdin.on("end", () => {
     let input = {};
     if (raw.trim()) {
       try {
@@ -188,7 +191,19 @@ function run() {
     if (output) {
       process.stdout.write(output + "\n");
     }
+  };
+
+  // Non-blocking safety watchdog: if pipe hangs without EOF for >1500ms, proceed safely with received data
+  const watchdogTimer = setTimeout(complete, 1500);
+  if (typeof watchdogTimer.unref === "function") {
+    watchdogTimer.unref();
+  }
+
+  process.stdin.on("data", (chunk) => {
+    raw += chunk;
   });
+
+  process.stdin.on("end", complete);
 }
 
 if (require.main === module) {
