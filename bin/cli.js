@@ -455,6 +455,45 @@ function preview() {
         showRateLimitTrend: true,
       },
     },
+    {
+      title: "9. Dot Minimalist Preset (ccs ui dot -> clean dot separators)",
+      input: sampleInput,
+      config: {
+        delimiter: "•",
+        fields: ["model", "context", "cost", "project", "git"],
+        currency: "CNY",
+      },
+    },
+    {
+      title: "10. Compact Nano Preset (ccs ui compact -> ultra-narrow 60-col split terminals)",
+      input: sampleInput,
+      config: {
+        delimiter: "•",
+        progressBar: false,
+        fields: ["model", "context", "cost", "project", "git"],
+      },
+    },
+    {
+      title: "11. Monorepo & Multi-Directory Workspace (+2 dirs & API calculation time)",
+      input: {
+        ...sampleInput,
+        workspace: {
+          project_dir: "/Users/dev/my-monorepo",
+          current_dir: "/Users/dev/my-monorepo/packages/client",
+          added_dirs: ["/Users/dev/shared-libs", "/Users/dev/docs"],
+        },
+        cost: {
+          ...sampleInput.cost,
+          total_duration_ms: 105 * 60 * 1000,
+          total_api_duration_ms: 8 * 60 * 1000 + 35 * 1000,
+        },
+      },
+      config: {
+        fields: ["model", "context", "session_duration", "project", "git"],
+        projectPathMode: "relative",
+        showApiDuration: true,
+      },
+    },
   ];
 
   scenarios.forEach(({ title, input, config }) => {
@@ -574,13 +613,16 @@ ${BOLD}DEFAULT FIELDS:${RESET}
   ${GREEN}git${RESET}          Git branch and dirty marker (*)
 
 ${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json):${RESET}
-  ${CYAN}cost${RESET}         Session cost in USD / CNY (with custom pricing multiplier)
-  ${CYAN}rate_limit${RESET}   5-hour, 7-day, and monthly quota with reset countdown
-  ${CYAN}cache${RESET}        Prompt cache hit rate (e.g. Cache:92%)
-  ${CYAN}lines${RESET}        Code velocity (+lines/-lines added and removed)
-  ${CYAN}mcp${RESET}          Configured MCP servers count (e.g. MCP:2)
-  ${CYAN}effort${RESET}       Claude 3.7 reasoning effort level
-  ${CYAN}output_style${RESET} Output style tag (e.g. [concise])
+  ${CYAN}cost${RESET}             Session cost in USD / CNY (with custom pricing multiplier)
+  ${CYAN}rate_limit${RESET}       5-hour, 7-day, and monthly quota with reset countdown
+  ${CYAN}cache${RESET}            Prompt cache hit rate (e.g. Cache:92%)
+  ${CYAN}session_duration${RESET} Elapsed session duration (e.g. 1h 24m)
+  ${CYAN}api_duration${RESET}     Pure API response generation time (e.g. api:12m)
+  ${CYAN}tokens${RESET}           Input, Cache and Output token breakdown
+  ${CYAN}lines${RESET}            Code velocity (+lines/-lines added and removed)
+  ${CYAN}mcp${RESET}              Configured MCP servers count (e.g. MCP:2)
+  ${CYAN}effort${RESET}           Claude 3.7 reasoning effort level
+  ${CYAN}output_style${RESET}     Output style tag (e.g. [concise])
 
 ${BOLD}PIPED USAGE:${RESET}
   cat session.json | ccs

@@ -67,7 +67,7 @@ claude-code-status install
 
 安装后，您可以在终端任意位置直接使用 **`ccs`** 命令：
 ```bash
-ccs ui                   # 交互式选择排版风格 (单行、双行、无色纯文本、原生 Unicode 符号)
+ccs ui                   # 交互式选择排版风格 (单行、双行、圆点、斜杠、窄屏紧凑、Unicode 符号)
 ccs theme catppuccin     # 切换色彩主题 (default, catppuccin, nord, tokyo)
 ccs delimiter /          # 自定义分隔符号 (如 / 或 •)
 ccs preview              # 终端全场景效果预览
@@ -150,6 +150,7 @@ ccs delimiter "|"   # 竖线分隔 (默认)
     "git",          // Git 分支与脏状态标记
     // "tokens",    // Token 消耗明细 (例如: I:12k C:320k O:18k)
     // "session_duration", // 会话运行时间 (例如: 38m 或 1h 24m)
+    // "api_duration",     // 纯 API 响应等待耗时 (例如: api:8m)
     // "cost",      // 会话费用 (基于 Claude Code 的 total_cost_usd，按中转倍率与汇率计算实际支出)
     // "rate_limit",// 展示 Claude Code 提供的 5 小时、7 天及月度限额与重置倒计时
     // "cache",     // Prompt Cache 缓存命中率
@@ -169,6 +170,8 @@ ccs delimiter "|"   # 竖线分隔 (默认)
   "showGitAheadBehind": false, // 是否显示与远端分支的上下游同步差异 (如 main ↑2 ↓1*)
   "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
+  "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
+  "showApiDuration": false,    // 是否在 session_duration 后附带显示 API 响应耗时 (例如: 1h 24m (api: 12m))
 
   // 4. 上下文上限 Token 数 (0 为自动跟随智能体实际配置)
   "contextWindowSize": 0,
@@ -214,10 +217,11 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 | :--- | :--- | :---: | :--- |
 | `model` | AI 模型名称 (自动清理日期，支持别名) | 开启 | `claude-3-7-sonnet` 或 `Sonnet 3.7` |
 | `context` | 上下文使用量及进度条 (支持反向块读取) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` |
-| `project` | 当前工作区项目目录名 | 开启 | `your-project` |
+| `project` | 当前工作区项目目录名 (支持 Monorepo 相对路径与多目录 +N dirs 标识) | 开启 | `your-project` 或 `repo:apps/web (+2 dirs)` |
 | `git` | Git 分支与状态 (带磁盘 TTL 短时缓存、超长分支省略与 Worktree 标识) | 开启 | `main*` 或 `main ↑2 ↓1*` |
 | `tokens` | Token 消耗明细 (Input / Cache / Output) | 可选 | `I:12k C:320k O:18k` |
-| `session_duration` | 会话持续运行时间 | 可选 | `38m` 或 `1h 24m` |
+| `session_duration` | 会话持续运行时间 (支持可选展示 API 耗时) | 可选 | `38m` 或 `1h 24m (api: 12m)` |
+| `api_duration` | 纯等待 Claude API 思考生成的响应耗时 | 可选 | `api:12m` |
 | `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率、汇率折算与梯度变色告警) | 可选 | `$0.18 (¥1.34)` 或 `$0.27 (x1.5)` |
 | `rate_limit` | 5 小时、7 天及月度限额、倒计时与可选消耗趋势 | 可选 | `5h:28%(2h14m)` 或 `5h:72%↑` |
 | `cache` | Prompt Cache 命中率百分比 | 可选 | `Cache:92%` |

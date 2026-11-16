@@ -165,6 +165,8 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "showGitAheadBehind": false, // Show upstream diff arrows (e.g. main ↑2 ↓1*)
   "maxBranchLength": 0,        // Max branch display length (0 disables; >0 middle-truncates e.g. feat/auth...flow)
   "gitCacheTtl": 2,            // Cache duration in seconds (0 = disabled)
+  "projectPathMode": "basename", // Project path mode: "basename" (folder only) or "relative" (Monorepo: repo:apps/web)
+  "showApiDuration": false,    // Append pure API response generation duration to session_duration (e.g. 1h 24m (api: 12m))
 
   // 4. Context window size limit (0 = auto-detect)
   "contextWindowSize": 0,
@@ -210,10 +212,11 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 | :--- | :--- | :---: | :--- |
 | `model` | Model name (cleans date suffixes, supports aliases) | Enabled | `claude-3-7-sonnet` or `Sonnet 3.7` |
 | `context` | Context window usage with progress bar | Enabled | `[██░░░░░░] 29% (58.0k/200.0k)` |
-| `project` | Current directory name | Enabled | `your-project` |
+| `project` | Current directory name (supports Monorepo relative paths and multi-dir +N dirs badge) | Enabled | `your-project` or `repo:apps/web (+2 dirs)` |
 | `git` | Git branch and dirty marker (cached, with middle-truncation and worktree support) | Enabled | `main*` or `main ↑2 ↓1*` |
 | `tokens` | Token breakdown (Input / Cache / Output) | Optional | `I:12k C:320k O:18k` |
-| `session_duration` | Elapsed session runtime duration | Optional | `38m` or `1h 24m` |
+| `session_duration` | Elapsed session runtime duration (optional API duration display) | Optional | `38m` or `1h 24m (api: 12m)` |
+| `api_duration` | Pure LLM generation and thinking response duration | Optional | `api:12m` |
 | `cost` | Session cost (scales total_cost_usd by proxy multiplier with gradient alert colors) | Optional | `$0.18 (¥1.34)` or `$0.27 (x1.5)` |
 | `rate_limit` | Quota usage, reset countdown, and optional burn rate trend | Optional | `5h:28%(2h14m)` or `5h:72%↑` |
 | `cache` | Prompt cache hit rate | Optional | `Cache:92%` |

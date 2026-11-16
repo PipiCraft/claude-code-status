@@ -702,3 +702,63 @@ test("cli doctor command runs successfully and inspects configuration", () => {
   assert.ok(out.includes("[2/3] Configuration File Check"));
   assert.ok(out.includes("[3/3] Git Environment & Responsiveness"));
 });
+
+test("project renderer detects added_dirs and displays (+N dirs) badge", () => {
+  const out = renderStatusline(
+    {
+      workspace: {
+        current_dir: "/path/to/main-repo",
+        added_dirs: ["/path/to/lib-a", "/path/to/lib-b"],
+      },
+    },
+    { colors: false, fields: ["project"] }
+  );
+  assert.ok(out.includes("main-repo (+2 dirs)"), `Expected (+2 dirs), got: ${out}`);
+});
+
+test("project renderer supports projectPathMode relative for monorepo subdirectories", () => {
+  const out = renderStatusline(
+    {
+      workspace: {
+        project_dir: "/path/to/monorepo",
+        current_dir: "/path/to/monorepo/apps/frontend",
+      },
+    },
+    { colors: false, fields: ["project"], projectPathMode: "relative" }
+  );
+  assert.ok(out.includes("monorepo:apps/frontend"), `Expected relative path, got: ${out}`);
+});
+
+test("api_duration renderer and session_duration showApiDuration display API response time", () => {
+  const input = {
+    cost: {
+      total_duration_ms: 3600000, // 1h
+      total_api_duration_ms: 720000, // 12m
+    },
+  };
+
+  // 1. Independent api_duration field
+  const apiOut = renderStatusline(input, { colors: false, fields: ["api_duration"] });
+  assert.equal(apiOut, "api:12m");
+
+  // 2. session_duration with showApiDuration: true
+  const sessionOut = renderStatusline(input, {
+    colors: false,
+    fields: ["session_duration"],
+    showApiDuration: true,
+  });
+  assert.equal(sessionOut, "1h (api: 12m)");
+});
+
+test("UI_PRESETS contains dot, slash, and compact layouts", () => {
+  const { UI_PRESETS } = require("../lib/config.js");
+  assert.ok(UI_PRESETS.dot, "dot preset should exist");
+  assert.equal(UI_PRESETS.dot.config.delimiter, "•");
+
+  assert.ok(UI_PRESETS.slash, "slash preset should exist");
+  assert.equal(UI_PRESETS.slash.config.delimiter, "/");
+
+  assert.ok(UI_PRESETS.compact, "compact preset should exist");
+  assert.equal(UI_PRESETS.compact.config.progressBar, false);
+  assert.equal(UI_PRESETS.compact.config.delimiter, "•");
+});
