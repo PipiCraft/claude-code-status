@@ -19,6 +19,7 @@ const {
   THEMES,
   getThemeColors,
   stripAnsi,
+  getStringWidth,
   makeProgressBar,
   formatCountdown,
   formatDuration,
@@ -140,7 +141,7 @@ function renderStatusline(input = {}, customConfig = {}) {
       Number(process.env.COLUMNS) ||
       100;
 
-    if (stripAnsi(singleLine).length > cols) {
+    if (getStringWidth(singleLine) > cols) {
       result = renderTwoLines();
     } else {
       result = singleLine;
@@ -205,6 +206,7 @@ module.exports = {
   makeProgressBar,
   readLastUsageFromTranscript,
   stripAnsi,
+  getStringWidth,
   THEMES,
   getThemeColors,
   DEFAULT_FIELDS,

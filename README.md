@@ -166,6 +166,7 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 
   // 3. Git 状态设置
   "showGitAheadBehind": false, // 是否显示与远端分支的上下游同步差异 (如 main ↑2 ↓1*)
+  "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
 
   // 4. 上下文上限 Token 数 (0 为自动跟随智能体实际配置)
@@ -176,6 +177,8 @@ ccs delimiter "|"   # 竖线分隔 (默认)
   "costMultiplier": 1.0,      // 中转站/代理加价倍率 (如使用 1.2 或 1.5 倍中转 API 时按此倍率计算实际花费)
   "exchangeRate": 7.25,       // 美元兑人民币汇率
   "showCostMultiplier": false,// 是否在费用后方标注倍率角标 (例如: $0.27 (x1.5))
+  "costWarningThreshold": 1.0,// 费用黄色告警阈值 (以美元计，默认: 1.0)
+  "costDangerThreshold": 5.0, // 费用红色告警阈值 (以美元计，默认: 5.0)
 
   // 6. 配额限额显示
   "rateLimitWindows": ["5h", "7d", "mo"],
@@ -211,10 +214,10 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 | `model` | AI 模型名称 (自动清理日期，支持别名) | 开启 | `claude-3-7-sonnet` 或 `Sonnet 3.7` |
 | `context` | 上下文使用量及进度条 (支持反向块读取) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | 当前工作区项目目录名 | 开启 | `your-project` |
-| `git` | Git 分支与状态 (带磁盘 TTL 短时缓存) | 开启 | `main*` 或 `main ↑2 ↓1*` |
+| `git` | Git 分支与状态 (带磁盘 TTL 短时缓存、超长分支省略与 Worktree 标识) | 开启 | `main*` 或 `main ↑2 ↓1*` |
 | `tokens` | Token 消耗明细 (Input / Cache / Output) | 可选 | `I:12k C:320k O:18k` |
 | `session_duration` | 会话持续运行时间 | 可选 | `38m` 或 `1h 24m` |
-| `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率与汇率折算) | 可选 | `$0.18 (¥1.34)` 或 `$0.27 (x1.5)` |
+| `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率、汇率折算与梯度变色告警) | 可选 | `$0.18 (¥1.34)` 或 `$0.27 (x1.5)` |
 | `rate_limit` | 5 小时、7 天及月度限额、倒计时与可选消耗趋势 | 可选 | `5h:28%(2h14m)` 或 `5h:72%↑` |
 | `cache` | Prompt Cache 命中率百分比 | 可选 | `Cache:92%` |
 | `lines` | 代码吞吐量 (行数增删) | 可选 | `+185/-32` |

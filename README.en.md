@@ -162,6 +162,7 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 
   // 3. Git status settings
   "showGitAheadBehind": false, // Show upstream diff arrows (e.g. main ↑2 ↓1*)
+  "maxBranchLength": 0,        // Max branch display length (0 disables; >0 middle-truncates e.g. feat/auth...flow)
   "gitCacheTtl": 2,            // Cache duration in seconds (0 = disabled)
 
   // 4. Context window size limit (0 = auto-detect)
@@ -172,6 +173,8 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "costMultiplier": 1.0,      // Proxy/relay price multiplier (e.g. 1.2 or 1.5 for third-party API resellers)
   "exchangeRate": 7.25,       // USD to CNY exchange rate
   "showCostMultiplier": false,// Show multiplier badge suffix (e.g. $0.27 (x1.5))
+  "costWarningThreshold": 1.0,// Cost warning yellow alert threshold (in effective USD, default: 1.0)
+  "costDangerThreshold": 5.0, // Cost danger red alert threshold (in effective USD, default: 5.0)
 
   // 6. Rate limits
   "rateLimitWindows": ["5h", "7d", "mo"],
@@ -207,10 +210,10 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 | `model` | Model name (cleans date suffixes, supports aliases) | Enabled | `claude-3-7-sonnet` or `Sonnet 3.7` |
 | `context` | Context window usage with progress bar | Enabled | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | Current directory name | Enabled | `your-project` |
-| `git` | Git branch and dirty marker (cached) | Enabled | `main*` or `main ↑2 ↓1*` |
+| `git` | Git branch and dirty marker (cached, with middle-truncation and worktree support) | Enabled | `main*` or `main ↑2 ↓1*` |
 | `tokens` | Token breakdown (Input / Cache / Output) | Optional | `I:12k C:320k O:18k` |
 | `session_duration` | Elapsed session runtime duration | Optional | `38m` or `1h 24m` |
-| `cost` | Session cost (scales total_cost_usd by proxy multiplier and exchange rate) | Optional | `$0.18 (¥1.34)` or `$0.27 (x1.5)` |
+| `cost` | Session cost (scales total_cost_usd by proxy multiplier with gradient alert colors) | Optional | `$0.18 (¥1.34)` or `$0.27 (x1.5)` |
 | `rate_limit` | Quota usage, reset countdown, and optional burn rate trend | Optional | `5h:28%(2h14m)` or `5h:72%↑` |
 | `cache` | Prompt cache hit rate | Optional | `Cache:92%` |
 | `lines` | Code velocity (lines added and removed) | Optional | `+185/-32` |

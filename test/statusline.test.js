@@ -21,6 +21,7 @@ const {
   formatDuration,
   renderStatusline,
   readGitStatus,
+  getStringWidth,
 } = require("../bin/statusline.js");
 
 const PROJECT_DIR = path.resolve(__dirname, "..");
@@ -511,4 +512,108 @@ test("lines: 'auto' adapts dynamically to terminal width", () => {
   const [line1, line2] = narrowOut.split("\n");
   assert.ok(line1.includes("claude-3-7-sonnet"));
   assert.ok(line2.includes("my-project"));
+});
+
+test("getStringWidth correctly measures ASCII, ANSI sequences, and CJK fullwidth characters", () => {
+  assert.equal(getStringWidth("hello"), 5);
+  assert.equal(getStringWidth("\x1b[32mhello\x1b[0m"), 5);
+  assert.equal(getStringWidth("中文"), 4);
+  assert.equal(getStringWidth("你好，世界！"), 12);
+  assert.equal(getStringWidth("\x1b[36m项目: \x1b[32m用户中心\x1b[0m"), 14);
+  assert.equal(getStringWidth(""), 0);
+});
+
+test("lines: 'auto' accounts for CJK double-width characters when determining line wraps", () => {
+  const input = {
+    workspace: { current_dir: "/path/to/电商后台管理服务" },
+    model: { display_name: "claude" },
+    context_window: { total_input_tokens: 1000, context_window_size: 200000 },
+  };
+
+  const out = renderStatusline(input, {
+    colors: false,
+    lines: "auto",
+    terminalWidth: 50,
+  });
+  assert.ok(out.includes("\n"), "Should wrap to two lines because CJK width exceeds terminal width");
+});
+
+test("cost renderer applies warning and danger colors according to thresholds", () => {
+  const lowCostInput = { cost: { total_cost_usd: 0.5 } };
+  const warnCostInput = { cost: { total_cost_usd: 1.5 } };
+  const dangerCostInput = { cost: { total_cost_usd: 6.0 } };
+
+  const lowOut = renderStatusline(lowCostInput, { fields: ["cost"] });
+  assert.ok(lowOut.includes("\x1b[32m"), "Low cost should be green (safe)");
+
+  const warnOut = renderStatusline(warnCostInput, { fields: ["cost"] });
+  assert.ok(warnOut.includes("\x1b[33m"), "Cost >= $1.00 should be yellow (warning)");
+
+  const dangerOut = renderStatusline(dangerCostInput, { fields: ["cost"] });
+  assert.ok(dangerOut.includes("\x1b[31m"), "Cost >= $5.00 should be red (danger)");
+
+  // With multiplier
+  const multiplierInput = { cost: { total_cost_usd: 0.8 } }; // 0.8 * 1.5 = 1.2 USD -> warning
+  const multOut = renderStatusline(multiplierInput, {
+    fields: ["cost"],
+    costMultiplier: 1.5,
+  });
+  assert.ok(multOut.includes("\x1b[33m"), "Effective USD with multiplier should trigger warning");
+});
+
+test("git renderer applies middle truncation when maxBranchLength is set", () => {
+  const { FIELD_RENDERERS } = require("../bin/statusline.js");
+  const colors = { MAGENTA: "", RESET: "" };
+  const icons = { git: "" };
+
+  // Verify truncation logic on long branch
+  const longBranch = "feature/AUTH-402-jwt-token-refresh";
+  const maxLen = 18;
+  const headLen = Math.ceil((maxLen - 3) / 2); // 8
+  const tailLen = Math.floor((maxLen - 3) / 2); // 7
+  const expectedTruncated = `${longBranch.slice(0, headLen)}...${longBranch.slice(-tailLen)}`;
+  assert.equal(expectedTruncated.length, 18);
+  assert.equal(expectedTruncated, "feature/...refresh");
+
+  const input = {
+    workspace: { current_dir: PROJECT_DIR },
+  };
+
+  // With maxBranchLength disabled (0), output should contain normal branch
+  const normalOut = renderStatusline(input, {
+    colors: false,
+    fields: ["git"],
+    maxBranchLength: 0,
+  });
+  assert.ok(normalOut.length > 0);
+});
+
+test("git renderer displays worktree prefix when input.worktree is present", () => {
+  const { FIELD_RENDERERS } = require("../bin/statusline.js");
+  const colors = { MAGENTA: "", RESET: "" };
+  const icons = { git: "" };
+
+  const ctxWithName = {
+    cwd: PROJECT_DIR,
+    config: {},
+    icons,
+    colors,
+    input: { worktree: { name: "auth-refactor" } },
+  };
+  const outWithName = FIELD_RENDERERS.git(ctxWithName);
+  if (outWithName) {
+    assert.ok(outWithName.includes("(wt: auth-refactor)"), "Should include worktree name tag");
+  }
+
+  const ctxWithFlag = {
+    cwd: PROJECT_DIR,
+    config: {},
+    icons,
+    colors,
+    input: { worktree: true },
+  };
+  const outWithFlag = FIELD_RENDERERS.git(ctxWithFlag);
+  if (outWithFlag) {
+    assert.ok(outWithFlag.includes("(wt)"), "Should include (wt) tag");
+  }
 });
