@@ -70,6 +70,9 @@ claude-code-status install
 ccs ui                   # 交互式选择排版风格 (单行、双行、圆点、斜杠、窄屏紧凑、Unicode 符号)
 ccs theme catppuccin     # 切换色彩主题 (default, catppuccin, nord, tokyo)
 ccs delimiter /          # 自定义分隔符号 (如 / 或 •)
+ccs set <key> <val>      # 快速修改配置 (如 ccs set showGitStatusStats true 或 ccs set lines 2)
+ccs get [key]            # 读取配置项当前生效值 (如 ccs get fields)
+ccs config list          # 查看所有配置项、当前值与自定义状态
 ccs preview              # 终端全场景效果预览
 ccs doctor               # 检查配置合法性、Settings绑定与Git运行状态
 ccs uninstall            # 从 Claude Code 设置中安全移除状态栏配置
@@ -132,6 +135,19 @@ ccs delimiter "•"   # 圆点分隔: claude-3-7-sonnet • [██░░░░�
 ccs delimiter "|"   # 竖线分隔 (默认)
 ```
 
+### 命令行快速配置 (ccs set / get / config)
+
+您无需手动编辑 JSON 文件，可直接通过 CLI 命令修改与查看任意配置项（自动保留注释与结构格式）：
+
+```bash
+ccs set showGitStatusStats true       # 开启 Git 细分文件计数 (+2 *1 ?3)
+ccs set lines 2                      # 切换为双行模式 (窄屏/分屏极佳)
+ccs set projectPathMode relative     # 切换为 Monorepo 相对路径模式
+ccs set fields model,context,speed,repo,git # 快速自定义展示字段
+ccs get fields                       # 读取当前生效的字段列表
+ccs config list                      # 列出全部配置项及其是否被自定义
+```
+
 ---
 
 ## 配置说明
@@ -147,7 +163,7 @@ ccs delimiter "|"   # 竖线分隔 (默认)
     "model",        // 模型名称 (自动清理日期，支持别名)
     "context",      // 上下文使用量及进度条
     "project",      // 当前项目目录名
-    "git",          // Git 分支与脏状态标记
+    "git",          // Git 分支与修改标记
     // "tokens",    // Token 消耗明细 (例如: I:12k C:320k O:18k)
     // "session_duration", // 会话运行时间 (例如: 38m 或 1h 24m)
     // "api_duration",     // 纯 API 响应等待耗时 (例如: api:8m)
@@ -157,7 +173,9 @@ ccs delimiter "|"   # 竖线分隔 (默认)
     // "lines",     // 会话代码增删吞吐量统计
     // "mcp",       // 扫描用户级和项目级配置的 MCP Server 数量
     // "effort",    // 思考级别/推理强度
-    // "output_style" // 输出风格标签
+    // "output_style", // 输出风格标签
+    // "speed",     // 模型生成吞吐速率 (例如: 85 t/s)
+    // "repo"       // 规范远程仓库标识 (例如: owner/repo)
   ],
 
   // 2. 终端显示行数
@@ -168,6 +186,7 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 
   // 3. Git 状态设置
   "showGitAheadBehind": false, // 是否显示与远端分支的上下游同步差异 (如 main ↑2 ↓1*)
+  "showGitStatusStats": false, // 是否细分显示暂存(+)/未暂存(*)/未跟踪(?)文件统计 (如 main +2 *1 ?3)
   "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
   "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
@@ -218,10 +237,12 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 | `model` | AI 模型名称 (自动清理日期，支持别名) | 开启 | `claude-3-7-sonnet` 或 `Sonnet 3.7` |
 | `context` | 上下文使用量及进度条 (支持反向块读取) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | 当前工作区项目目录名 (支持 Monorepo 相对路径与多目录 +N dirs 标识) | 开启 | `your-project` 或 `repo:apps/web (+2 dirs)` |
-| `git` | Git 分支与状态 (带磁盘 TTL 短时缓存、超长分支省略与 Worktree 标识) | 开启 | `main*` 或 `main ↑2 ↓1*` |
+| `git` | Git 分支与状态 (带磁盘 TTL 短时缓存、超长分支省略、Worktree 标识与细分暂存 +N / 未暂存 *N / 未跟踪 ?N) | 开启 | `main*` 或 `main +2 *1 ?3` |
 | `tokens` | Token 消耗明细 (Input / Cache / Output) | 可选 | `I:12k C:320k O:18k` |
 | `session_duration` | 会话持续运行时间 (支持可选展示 API 耗时) | 可选 | `38m` 或 `1h 24m (api: 12m)` |
 | `api_duration` | 纯等待 Claude API 思考生成的响应耗时 | 可选 | `api:12m` |
+| `speed` | 模型生成吞吐速率 (Tokens per second) | 可选 | `85 t/s` |
+| `repo` | 规范远程 Git 仓库标识 (owner/repo) | 可选 | `PipiCraft/claude-code-status` |
 | `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率、汇率折算与梯度变色告警) | 可选 | `$0.18 (¥1.34)` 或 `$0.27 (x1.5)` |
 | `rate_limit` | 5 小时、7 天及月度限额、倒计时与可选消耗趋势 | 可选 | `5h:28%(2h14m)` 或 `5h:72%↑` |
 | `cache` | Prompt Cache 命中率百分比 | 可选 | `Cache:92%` |

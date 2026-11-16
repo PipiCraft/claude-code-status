@@ -223,6 +223,225 @@ function setDelimiter(newDelimiter) {
   }
 }
 
+function parseTypedValue(key, val) {
+  if (typeof val !== "string") return val;
+  const trimmed = val.trim();
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  if (trimmed === "null") return null;
+
+  const arrayKeys = ["fields", "line2", "rateLimitWindows"];
+  if (arrayKeys.includes(key)) {
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {}
+    }
+    return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+
+  if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {}
+  }
+
+  return trimmed;
+}
+
+function replaceJsoncProperty(raw, key, newVal) {
+  // Check if key exists in raw
+  const keyPattern = new RegExp(`"${key}"\\s*:`);
+  const match = keyPattern.exec(raw);
+
+  if (match) {
+    const startIdx = match.index;
+    const colonIdx = raw.indexOf(":", startIdx);
+    let valStart = colonIdx + 1;
+    while (valStart < raw.length && /\s/.test(raw[valStart])) {
+      valStart++;
+    }
+
+    const firstChar = raw[valStart];
+    if (firstChar === "[" || firstChar === "{") {
+      const openChar = firstChar;
+      const closeChar = openChar === "[" ? "]" : "}";
+      let depth = 0;
+      let inString = false;
+      let inLineComment = false;
+      let inBlockComment = false;
+      let valEnd = -1;
+
+      for (let i = valStart; i < raw.length; i++) {
+        const ch = raw[i];
+        const next = raw[i + 1];
+
+        if (inString) {
+          if (ch === "\\" && next) {
+            i++; // skip escaped char
+          } else if (ch === '"') {
+            inString = false;
+          }
+          continue;
+        }
+
+        if (inLineComment) {
+          if (ch === "\n") inLineComment = false;
+          continue;
+        }
+
+        if (inBlockComment) {
+          if (ch === "*" && next === "/") {
+            inBlockComment = false;
+            i++;
+          }
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = true;
+          continue;
+        }
+
+        if (ch === "/" && next === "/") {
+          inLineComment = true;
+          i++;
+          continue;
+        }
+
+        if (ch === "/" && next === "*") {
+          inBlockComment = true;
+          i++;
+          continue;
+        }
+
+        if (ch === openChar) {
+          depth++;
+        } else if (ch === closeChar) {
+          depth--;
+          if (depth === 0) {
+            valEnd = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (valEnd !== -1) {
+        const formatted = Array.isArray(newVal)
+          ? JSON.stringify(newVal, null, 2)
+              .split("\n")
+              .map((line, idx) => (idx === 0 ? line : `  ${line}`))
+              .join("\n")
+          : JSON.stringify(newVal);
+
+        return raw.slice(0, valStart) + formatted + raw.slice(valEnd);
+      }
+    } else {
+      // Scalar value (boolean, number, string)
+      const scalarReg = new RegExp(
+        `("${key}"\\s*:\\s*)(true|false|-?\\d+(?:\\.\\d+)?|"(?:\\\\.|[^"\\\\])*"|[^,\\r\\n]+)(\\s*,?)([^\\r\\n]*)`
+      );
+      if (scalarReg.test(raw)) {
+        return raw.replace(
+          scalarReg,
+          (_match, prefix, _val, comma, trailing) => `${prefix}${JSON.stringify(newVal)}${comma}${trailing}`
+        );
+      }
+    }
+  }
+
+  // If not found, append before closing }
+  return raw.replace(
+    /(\r?\n\s*)}(\s*)$/,
+    (_match, indent, tail) => `,\n  "${key}": ${JSON.stringify(newVal)}${indent}}${tail}`
+  );
+}
+
+function setConfig(key, rawValue) {
+  if (!key || rawValue === undefined) {
+    console.log(`${YELLOW}用法: ccs set <配置项> <值>${RESET}`);
+    console.log(`例如: ccs set showGitStatusStats true`);
+    console.log(`      ccs set lines 2`);
+    console.log(`      ccs set delimiter " / "`);
+    console.log(`      ccs set fields model,context,cost,git`);
+    return;
+  }
+
+  const { configPath } = getClaudeSettingsPath();
+  initConfig(false);
+
+  const val = parseTypedValue(key, rawValue);
+
+  try {
+    let raw = fs.readFileSync(configPath, "utf8");
+    raw = replaceJsoncProperty(raw, key, val);
+
+    // Validate that the output is still valid JSONC
+    parseJsonWithComments(raw);
+
+    fs.writeFileSync(configPath, raw, "utf8");
+    console.log(`${GREEN}${BOLD}✔ 配置更新成功:${RESET} ${CYAN}${key}${RESET} = ${GREEN}${JSON.stringify(val)}${RESET}\n`);
+
+    const sample = {
+      workspace: { current_dir: path.resolve(__dirname, "..") },
+      model: { display_name: "claude-3-7-sonnet" },
+      context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+      cost: { total_cost_usd: 0.185 },
+    };
+    console.log(`${BOLD}当前效果预览:${RESET}`);
+    console.log("  " + renderStatusline(sample).split("\n").join("\n  ") + "\n");
+  } catch (e) {
+    console.error(`${RED}更新配置文件失败: ${e.message}${RESET}`);
+  }
+}
+
+function getConfig(key) {
+  if (!key) {
+    listConfig();
+    return;
+  }
+  const { configPath } = getClaudeSettingsPath();
+  let userConfig = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      userConfig = parseJsonWithComments(fs.readFileSync(configPath, "utf8")) || {};
+    } catch {}
+  }
+
+  if (Object.prototype.hasOwnProperty.call(userConfig, key)) {
+    console.log(`${BOLD}${key}${RESET}: ${CYAN}${JSON.stringify(userConfig[key])}${RESET}`);
+  } else if (Object.prototype.hasOwnProperty.call(DEFAULT_CONFIG, key)) {
+    console.log(`${BOLD}${key}${RESET}: ${DIM}${JSON.stringify(DEFAULT_CONFIG[key])} (default)${RESET}`);
+  } else {
+    console.log(`${YELLOW}未知配置项: ${key}${RESET}`);
+    console.log(`运行 ${CYAN}ccs config list${RESET} 查看所有可用配置项。`);
+  }
+}
+
+function listConfig() {
+  const { configPath } = getClaudeSettingsPath();
+  let userConfig = {};
+  if (fs.existsSync(configPath)) {
+    try {
+      userConfig = parseJsonWithComments(fs.readFileSync(configPath, "utf8")) || {};
+    } catch {}
+  }
+
+  console.log(`\n${BOLD}Claude Code Statusline 配置 (${configPath}):${RESET}\n`);
+  const keys = Array.from(new Set([...Object.keys(DEFAULT_CONFIG), ...Object.keys(userConfig)]));
+  for (const k of keys) {
+    const isCustom = Object.prototype.hasOwnProperty.call(userConfig, k);
+    const val = isCustom ? userConfig[k] : DEFAULT_CONFIG[k];
+    const marker = isCustom ? `${GREEN}✔ custom${RESET}` : `${DIM}default${RESET}`;
+    console.log(`  ${BOLD}${k.padEnd(24)}${RESET} ${CYAN}${JSON.stringify(val)}${RESET}  [${marker}]`);
+  }
+  console.log(`\n使用 ${CYAN}ccs set <key> <value>${RESET} 修改任意配置项。\n`);
+}
+
 function setTheme(newTheme) {
   const validThemes = ["default", "catppuccin", "nord", "tokyo"];
   if (!newTheme || !validThemes.includes(newTheme.toLowerCase())) {
@@ -494,6 +713,28 @@ function preview() {
         showApiDuration: true,
       },
     },
+    {
+      title: "12. Git Detailed Stats & Speed Throughput (showGitStatusStats + speed + repo)",
+      input: {
+        ...sampleInput,
+        workspace: {
+          ...sampleInput.workspace,
+          repo: { host: "github.com", owner: "PipiCraft", name: "claude-code-status" },
+        },
+        context_window: {
+          ...sampleInput.context_window,
+          total_output_tokens: 12500,
+        },
+        cost: {
+          ...sampleInput.cost,
+          total_api_duration_ms: 147000,
+        },
+      },
+      config: {
+        fields: ["model", "context", "speed", "repo", "git"],
+        showGitStatusStats: true,
+      },
+    },
   ];
 
   scenarios.forEach(({ title, input, config }) => {
@@ -595,34 +836,39 @@ ${BOLD}USAGE:${RESET}
   ccs [command]
 
 ${BOLD}COMMANDS:${RESET}
-  ${CYAN}install${RESET}      Configure ~/.claude/settings.json (or repair: ccs fix)
-                  Add ${DIM}--if-unset${RESET} to skip when a statusLine already exists
-  ${CYAN}uninstall${RESET}    Remove statusline from ~/.claude/settings.json
-  ${CYAN}doctor${RESET}       Check installation health, settings and config integrity
-  ${CYAN}ui [name]${RESET}    Interactive UI style picker & switcher (or apply by name/number)
-  ${CYAN}theme <name>${RESET} Set color theme (default, catppuccin, nord, tokyo)
-  ${CYAN}delimiter <s>${RESET} Set delimiter symbol (default: "|", e.g. "/" or "•")
-  ${CYAN}preview${RESET}      Preview statusline styles and layouts
-  ${CYAN}init-config${RESET}  Generate ~/.claude/statusline.config.json with full annotations
-  ${CYAN}help${RESET}         Show this help message
+  ${CYAN}install${RESET}          Configure ~/.claude/settings.json (or repair: ccs fix)
+                      Add ${DIM}--if-unset${RESET} to skip when a statusLine already exists
+  ${CYAN}uninstall${RESET}        Remove statusline from ~/.claude/settings.json
+  ${CYAN}doctor${RESET}           Check installation health, settings and config integrity
+  ${CYAN}set <key> <val>${RESET}  Set configuration property (e.g. ccs set showGitStatusStats true)
+  ${CYAN}get [key]${RESET}        Read configuration property (e.g. ccs get theme)
+  ${CYAN}config [list]${RESET}    List all configuration properties and their state
+  ${CYAN}ui [name]${RESET}        Interactive UI style picker & switcher (or apply by name/number)
+  ${CYAN}theme <name>${RESET}     Set color theme (default, catppuccin, nord, tokyo)
+  ${CYAN}delimiter <s>${RESET}    Set delimiter symbol (default: "|", e.g. "/" or "•")
+  ${CYAN}preview${RESET}          Preview statusline styles and layouts
+  ${CYAN}init-config${RESET}      Generate ~/.claude/statusline.config.json with full annotations
+  ${CYAN}help${RESET}             Show this help message
 
 ${BOLD}DEFAULT FIELDS:${RESET}
-  ${GREEN}model${RESET}        AI Model name (e.g. claude-3-7-sonnet)
-  ${GREEN}context${RESET}      Token usage and progress bar (e.g. [██░░░░░░] 29% (58k/200k))
-  ${GREEN}project${RESET}      Current project directory
-  ${GREEN}git${RESET}          Git branch and dirty marker (*)
+  ${GREEN}model${RESET}            AI Model name (e.g. claude-3-7-sonnet)
+  ${GREEN}context${RESET}          Token usage and progress bar (e.g. [██░░░░░░] 29% (58k/200k))
+  ${GREEN}project${RESET}          Current project directory
+  ${GREEN}git${RESET}              Git branch and dirty marker (*)
 
-${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json):${RESET}
-  ${CYAN}cost${RESET}             Session cost in USD / CNY (with custom pricing multiplier)
-  ${CYAN}rate_limit${RESET}       5-hour, 7-day, and monthly quota with reset countdown
-  ${CYAN}cache${RESET}            Prompt cache hit rate (e.g. Cache:92%)
-  ${CYAN}session_duration${RESET} Elapsed session duration (e.g. 1h 24m)
-  ${CYAN}api_duration${RESET}     Pure API response generation time (e.g. api:12m)
-  ${CYAN}tokens${RESET}           Input, Cache and Output token breakdown
-  ${CYAN}lines${RESET}            Code velocity (+lines/-lines added and removed)
-  ${CYAN}mcp${RESET}              Configured MCP servers count (e.g. MCP:2)
-  ${CYAN}effort${RESET}           Claude 3.7 reasoning effort level
-  ${CYAN}output_style${RESET}     Output style tag (e.g. [concise])
+${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json or use ccs set fields ...):${RESET}
+  ${CYAN}cost${RESET}                 Session cost in USD / CNY (with custom pricing multiplier)
+  ${CYAN}rate_limit${RESET}           5-hour, 7-day, and monthly quota with reset countdown
+  ${CYAN}cache${RESET}                Prompt cache hit rate (e.g. Cache:92%)
+  ${CYAN}session_duration${RESET}     Elapsed session duration (e.g. 1h 24m)
+  ${CYAN}api_duration${RESET}         Pure API response generation time (e.g. api:12m)
+  ${CYAN}speed${RESET}                Model generation throughput (e.g. 85 t/s)
+  ${CYAN}repo${RESET}                 Canonical remote repository (e.g. owner/repo)
+  ${CYAN}tokens${RESET}               Input, Cache and Output token breakdown
+  ${CYAN}lines${RESET}                Code velocity (+lines/-lines added and removed)
+  ${CYAN}mcp${RESET}                  Configured MCP servers count (e.g. MCP:2)
+  ${CYAN}effort${RESET}               Claude 3.7 reasoning effort level
+  ${CYAN}output_style${RESET}         Output style tag (e.g. [concise])
 
 ${BOLD}PIPED USAGE:${RESET}
   cat session.json | ccs
@@ -630,6 +876,7 @@ ${BOLD}PIPED USAGE:${RESET}
 }
 
 const arg = (process.argv[2] || "").toLowerCase();
+const subArg = (process.argv[3] || "").toLowerCase();
 
 if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   install(process.argv.includes("--if-unset"));
@@ -645,7 +892,25 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   setDelimiter(process.argv[3]);
 } else if (arg === "preview" || arg === "p") {
   preview();
-} else if (arg === "init-config" || arg === "config") {
+} else if (arg === "set") {
+  setConfig(process.argv[3], process.argv[4]);
+} else if (arg === "get") {
+  getConfig(process.argv[3]);
+} else if (arg === "list" || arg === "ls") {
+  listConfig();
+} else if (arg === "config") {
+  if (subArg === "set") {
+    setConfig(process.argv[4], process.argv[5]);
+  } else if (subArg === "get") {
+    getConfig(process.argv[4]);
+  } else if (subArg === "init") {
+    initConfig();
+  } else if (subArg === "list" || subArg === "ls" || !subArg) {
+    listConfig();
+  } else {
+    getConfig(process.argv[3]);
+  }
+} else if (arg === "init-config") {
   initConfig();
 } else if (arg === "--help" || arg === "-h" || arg === "help") {
   showHelp();

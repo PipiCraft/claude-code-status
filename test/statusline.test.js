@@ -23,6 +23,7 @@ const {
   readGitStatus,
   getStringWidth,
 } = require("../bin/statusline.js");
+const { stripAnsi } = require("../lib/utils.js");
 
 const PROJECT_DIR = path.resolve(__dirname, "..");
 const CLI_PATH = path.join(PROJECT_DIR, "bin", "cli.js");
@@ -761,4 +762,131 @@ test("UI_PRESETS contains dot, slash, and compact layouts", () => {
   assert.ok(UI_PRESETS.compact, "compact preset should exist");
   assert.equal(UI_PRESETS.compact.config.progressBar, false);
   assert.equal(UI_PRESETS.compact.config.delimiter, "•");
+});
+
+test("git renderer formats staged, unstaged, and untracked file stats when showGitStatusStats is true", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ccs-git-stats-"));
+  try {
+    execFileSync("git", ["init"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmp, stdio: "ignore" });
+
+    // Initial commit
+    fs.writeFileSync(path.join(tmp, "base.txt"), "base content\n");
+    execFileSync("git", ["add", "."], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: tmp, stdio: "ignore" });
+
+    // 1 staged change
+    fs.writeFileSync(path.join(tmp, "staged.txt"), "new staged\n");
+    execFileSync("git", ["add", "staged.txt"], { cwd: tmp, stdio: "ignore" });
+
+    // 1 unstaged change
+    fs.writeFileSync(path.join(tmp, "base.txt"), "base modified\n");
+
+    // 1 untracked file
+    fs.writeFileSync(path.join(tmp, "untracked.txt"), "untracked\n");
+
+    // Default mode: just *
+    const defaultOut = renderStatusline(
+      { workspace: { current_dir: tmp } },
+      { colors: false, fields: ["git"], gitCacheTtl: 0 }
+    );
+    assert.ok(defaultOut.endsWith("*"), `Default mode should end with *, got: ${defaultOut}`);
+    assert.ok(!defaultOut.includes("+1"), `Default mode should not have +1, got: ${defaultOut}`);
+
+    // showGitStatusStats: true
+    const statsOut = renderStatusline(
+      { workspace: { current_dir: tmp } },
+      { colors: false, fields: ["git"], showGitStatusStats: true, gitCacheTtl: 0 }
+    );
+    assert.ok(statsOut.includes("+1"), `Expected +1 staged, got: ${statsOut}`);
+    assert.ok(statsOut.includes("*1"), `Expected *1 unstaged, got: ${statsOut}`);
+    assert.ok(statsOut.includes("?1"), `Expected ?1 untracked, got: ${statsOut}`);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("repo renderer outputs owner/name from workspace.repo or falls back to project", () => {
+  // From workspace.repo
+  const repoOut = renderStatusline(
+    {
+      workspace: {
+        repo: { host: "github.com", owner: "PipiCraft", name: "claude-code-status" },
+      },
+    },
+    { colors: false, fields: ["repo"] }
+  );
+  assert.equal(repoOut, "PipiCraft/claude-code-status");
+
+  // Fallback to project directory name
+  const fallbackOut = renderStatusline(
+    {
+      workspace: {
+        current_dir: "/path/to/my-awesome-repo",
+      },
+    },
+    { colors: false, fields: ["repo"] }
+  );
+  assert.equal(fallbackOut, "my-awesome-repo");
+});
+
+test("speed renderer calculates token throughput per second", () => {
+  // 5000 output tokens in 25000ms api time = 200 t/s
+  const speedOut = renderStatusline(
+    {
+      context_window: { total_output_tokens: 5000 },
+      cost: { total_api_duration_ms: 25000 },
+    },
+    { colors: false, fields: ["speed"] }
+  );
+  assert.equal(speedOut, "200 t/s");
+
+  // Aliases test (tok_per_sec)
+  const aliasOut = renderStatusline(
+    {
+      context_window: { total_output_tokens: 1500 },
+      cost: { total_api_duration_ms: 15000 },
+    },
+    { colors: false, fields: ["tok_per_sec"] }
+  );
+  assert.equal(aliasOut, "100 t/s");
+
+  // Omitted if insufficient duration (<500ms) or 0 output tokens
+  const zeroOut = renderStatusline(
+    {
+      context_window: { total_output_tokens: 0 },
+      cost: { total_api_duration_ms: 5000 },
+    },
+    { colors: false, fields: ["speed"] }
+  );
+  assert.equal(zeroOut, "");
+});
+
+test("cli set, get, and config commands update and retrieve configuration", () => {
+  const home = makeSandboxHome("ccs-cli-test-");
+  try {
+    // 1. set boolean property
+    runCli(home, "set", "showGitStatusStats", "true");
+    const getBool = stripAnsi(runCli(home, "get", "showGitStatusStats"));
+    assert.ok(getBool.includes("showGitStatusStats: true"), `Expected showGitStatusStats: true, got: ${getBool}`);
+
+    // 2. set numeric property
+    runCli(home, "set", "lines", "2");
+    const getNum = stripAnsi(runCli(home, "get", "lines"));
+    assert.ok(getNum.includes("lines: 2"), `Expected lines: 2, got: ${getNum}`);
+
+    // 3. set array property with comma-separated list
+    runCli(home, "set", "fields", "model,context,speed,repo,git");
+    const getArr = stripAnsi(runCli(home, "get", "fields"));
+    assert.ok(getArr.includes("speed"), `Expected speed in fields, got: ${getArr}`);
+    assert.ok(getArr.includes("repo"), `Expected repo in fields, got: ${getArr}`);
+
+    // 4. list configuration via config list
+    const listOut = stripAnsi(runCli(home, "config", "list"));
+    assert.ok(listOut.includes("showGitStatusStats"), "Config list should include showGitStatusStats");
+    assert.ok(listOut.includes("custom"), "Config list should show custom markers");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

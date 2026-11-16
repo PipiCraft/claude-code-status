@@ -70,6 +70,9 @@ After installation, use `ccs` to manage settings:
 ccs ui                   # Choose UI style
 ccs theme catppuccin     # Switch color theme (default, catppuccin, nord, tokyo)
 ccs delimiter /          # Set separator character
+ccs set <key> <val>      # Modify setting (e.g. ccs set showGitStatusStats true or ccs set lines 2)
+ccs get [key]            # View effective setting value (e.g. ccs get fields)
+ccs config list          # List all settings, values, and customization status
 ccs preview              # Preview layouts and themes
 ccs doctor               # Inspect configuration, settings binding and git status
 ccs uninstall            # Remove statusline from Claude Code settings
@@ -132,6 +135,19 @@ ccs delimiter "•"   # Bullet: claude-3-7-sonnet • [██░░░░░░]
 ccs delimiter "|"   # Pipe (default)
 ```
 
+### Command-Line Configuration (ccs set / get / config)
+
+Modify and inspect any configuration property directly from the terminal without editing JSON files by hand (comments and formatting are safely preserved):
+
+```bash
+ccs set showGitStatusStats true       # Enable fine-grained Git file stats (+2 *1 ?3)
+ccs set lines 2                      # Switch to dual-line layout (great for split panes)
+ccs set projectPathMode relative     # Switch to Monorepo relative directory mode
+ccs set fields model,context,speed,repo,git # Quickly customize active fields
+ccs get fields                       # Print currently effective field array
+ccs config list                      # List all settings, values, and override status
+```
+
 ---
 
 ## Configuration
@@ -149,13 +165,16 @@ On first run or after `ccs install`, an annotated config file is generated at `~
     "git",          // Git branch and dirty marker
     // "tokens",    // Token breakdown (e.g. I:12k C:320k O:18k)
     // "session_duration", // Elapsed session runtime (e.g. 38m or 1h 24m)
+    // "api_duration",     // Pure API response generation duration (e.g. api:8m)
     // "cost",      // Session cost (scales Claude Code's total_cost_usd by proxy multiplier & exchange rate)
     // "rate_limit",// Displays Claude Code's 5h, 7d, and monthly limits with reset countdowns
     // "cache",     // Prompt cache hit rate
     // "lines",     // Lines added/removed count
     // "mcp",       // Scans user-level and project-level configured MCP server count
     // "effort",    // Reasoning effort level
-    // "output_style" // Output style tag
+    // "output_style", // Output style tag
+    // "speed",     // Model generation throughput (e.g. 85 t/s)
+    // "repo"       // Canonical remote repository identifier (e.g. owner/repo)
   ],
 
   // 2. Display lines (1 for single line, 2 for dual line, "auto" for width-adaptive)
@@ -163,6 +182,7 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 
   // 3. Git status settings
   "showGitAheadBehind": false, // Show upstream diff arrows (e.g. main ↑2 ↓1*)
+  "showGitStatusStats": false, // Show detailed staged (+), unstaged (*), untracked (?) file counts (e.g. main +2 *1 ?3)
   "maxBranchLength": 0,        // Max branch display length (0 disables; >0 middle-truncates e.g. feat/auth...flow)
   "gitCacheTtl": 2,            // Cache duration in seconds (0 = disabled)
   "projectPathMode": "basename", // Project path mode: "basename" (folder only) or "relative" (Monorepo: repo:apps/web)
@@ -213,10 +233,12 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 | `model` | Model name (cleans date suffixes, supports aliases) | Enabled | `claude-3-7-sonnet` or `Sonnet 3.7` |
 | `context` | Context window usage with progress bar | Enabled | `[██░░░░░░] 29% (58.0k/200.0k)` |
 | `project` | Current directory name (supports Monorepo relative paths and multi-dir +N dirs badge) | Enabled | `your-project` or `repo:apps/web (+2 dirs)` |
-| `git` | Git branch and dirty marker (cached, with middle-truncation and worktree support) | Enabled | `main*` or `main ↑2 ↓1*` |
+| `git` | Git branch and dirty marker (cached, with middle-truncation, worktrees, and detailed staged +N / unstaged *N / untracked ?N stats) | Enabled | `main*` or `main +2 *1 ?3` |
 | `tokens` | Token breakdown (Input / Cache / Output) | Optional | `I:12k C:320k O:18k` |
 | `session_duration` | Elapsed session runtime duration (optional API duration display) | Optional | `38m` or `1h 24m (api: 12m)` |
 | `api_duration` | Pure LLM generation and thinking response duration | Optional | `api:12m` |
+| `speed` | Model generation throughput (Tokens per second) | Optional | `85 t/s` |
+| `repo` | Canonical remote Git repository identifier (owner/repo) | Optional | `PipiCraft/claude-code-status` |
 | `cost` | Session cost (scales total_cost_usd by proxy multiplier with gradient alert colors) | Optional | `$0.18 (¥1.34)` or `$0.27 (x1.5)` |
 | `rate_limit` | Quota usage, reset countdown, and optional burn rate trend | Optional | `5h:28%(2h14m)` or `5h:72%↑` |
 | `cache` | Prompt cache hit rate | Optional | `Cache:92%` |
