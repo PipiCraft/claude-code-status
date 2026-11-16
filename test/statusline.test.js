@@ -616,4 +616,89 @@ test("git renderer displays worktree prefix when input.worktree is present", () 
   if (outWithFlag) {
     assert.ok(outWithFlag.includes("(wt)"), "Should include (wt) tag");
   }
+
+  // Also verify fallback to input.workspace.git_worktree
+  const ctxWithWorkspaceWt = {
+    cwd: PROJECT_DIR,
+    config: {},
+    icons,
+    colors,
+    input: { workspace: { git_worktree: "workspace-wt" } },
+  };
+  const outWithWorkspaceWt = FIELD_RENDERERS.git(ctxWithWorkspaceWt);
+  if (outWithWorkspaceWt) {
+    assert.ok(outWithWorkspaceWt.includes("(wt: workspace-wt)"), "Should support workspace.git_worktree");
+  }
+});
+
+test("cache renderer computes hit rate including cache_creation_input_tokens and shows 0% on cache miss", () => {
+  const { FIELD_RENDERERS } = require("../bin/statusline.js");
+  const icons = { cache: "" };
+  const colors = { GREEN: "", CYAN: "", DIM: "", RESET: "" };
+
+  // 1. Normal hit rate (cacheRead: 8000, cacheCreation: 1000, input: 1000 -> 8000/10000 = 80%)
+  const hitCtx = {
+    icons,
+    colors,
+    input: {
+      context_window: {
+        current_usage: {
+          cache_read_input_tokens: 8000,
+          cache_creation_input_tokens: 1000,
+          input_tokens: 1000,
+        },
+      },
+    },
+  };
+  const hitOut = FIELD_RENDERERS.cache(hitCtx);
+  assert.equal(hitOut, "Cache:80%");
+
+  // 2. Cache miss on cold start or TTL expiration (cacheRead: 0, cacheCreation: 5000, input: 2000)
+  const missCtx = {
+    icons,
+    colors,
+    input: {
+      context_window: {
+        current_usage: {
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 5000,
+          input_tokens: 2000,
+        },
+      },
+    },
+  };
+  const missOut = FIELD_RENDERERS.cache(missCtx);
+  assert.equal(missOut, "Cache:0%");
+});
+
+test("git renderer formats detached HEAD with short commit hash", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "claude-statusline-detached-test-"));
+  try {
+    execFileSync("git", ["init"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "test"], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmp, stdio: "ignore" });
+    fs.writeFileSync(path.join(tmp, "init.txt"), "hello");
+    execFileSync("git", ["add", "."], { cwd: tmp, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: tmp, stdio: "ignore" });
+
+    const hash = execFileSync("git", ["rev-parse", "HEAD"], { cwd: tmp, encoding: "utf8" }).trim();
+    execFileSync("git", ["checkout", hash], { cwd: tmp, stdio: "ignore" });
+
+    const out = renderStatusline({ workspace: { current_dir: tmp } }, { colors: false, fields: ["git"] });
+    const shortHash = hash.slice(0, 7);
+    assert.ok(out.includes(`HEAD@${shortHash}`), `Output should include HEAD@${shortHash}, got: ${out}`);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("cli doctor command runs successfully and inspects configuration", () => {
+  const out = execFileSync(process.execPath, [CLI_PATH, "doctor"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: sandboxHome, USERPROFILE: sandboxHome },
+  });
+  assert.ok(out.includes("Health Doctor"));
+  assert.ok(out.includes("[1/3] Claude Code Settings Check"));
+  assert.ok(out.includes("[2/3] Configuration File Check"));
+  assert.ok(out.includes("[3/3] Git Environment & Responsiveness"));
 });

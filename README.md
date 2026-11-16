@@ -71,6 +71,7 @@ ccs ui                   # 交互式选择排版风格 (单行、双行、无色
 ccs theme catppuccin     # 切换色彩主题 (default, catppuccin, nord, tokyo)
 ccs delimiter /          # 自定义分隔符号 (如 / 或 •)
 ccs preview              # 终端全场景效果预览
+ccs doctor               # 检查配置合法性、Settings绑定与Git运行状态
 ccs uninstall            # 从 Claude Code 设置中安全移除状态栏配置
 ```
 

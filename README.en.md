@@ -71,6 +71,7 @@ ccs ui                   # Choose UI style
 ccs theme catppuccin     # Switch color theme (default, catppuccin, nord, tokyo)
 ccs delimiter /          # Set separator character
 ccs preview              # Preview layouts and themes
+ccs doctor               # Inspect configuration, settings binding and git status
 ccs uninstall            # Remove statusline from Claude Code settings
 ```
 

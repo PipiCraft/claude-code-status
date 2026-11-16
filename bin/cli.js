@@ -16,6 +16,7 @@ const {
   DEFAULT_CONFIG_TEMPLATE,
   UI_PRESETS,
   parseJsonWithComments,
+  readGitStatus,
 } = require("./statusline.js");
 
 const GREEN = "\x1b[32m";
@@ -463,6 +464,88 @@ function preview() {
   });
 }
 
+function doctor() {
+  console.log(`\n${BOLD}claude-code-status (ccs) Health Doctor${RESET}\n`);
+  let hasError = false;
+
+  const { claudeDir, settingsPath, configPath } = getClaudeSettingsPath();
+  const statuslinePath = path.resolve(__dirname, "statusline.js").replace(/\\/g, "/");
+
+  // 1. Settings check
+  console.log(`${BOLD}[1/3] Claude Code Settings Check (~/.claude/settings.json):${RESET}`);
+  if (!fs.existsSync(settingsPath)) {
+    console.log(`  ${YELLOW}⚠️  settings.json not found at ${settingsPath}${RESET}`);
+    console.log(`     Run ${CYAN}ccs install${RESET} to configure it.`);
+    hasError = true;
+  } else {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf8");
+      const settings = JSON.parse(raw || "{}");
+      if (settings.statusLine && typeof settings.statusLine.command === "string") {
+        const cmd = settings.statusLine.command;
+        if (cmd.includes(statuslinePath) || cmd.includes("ccs") || cmd.includes("claude-code-status")) {
+          console.log(`  ${GREEN}✔ statusLine is properly configured:${RESET} ${DIM}${cmd}${RESET}`);
+        } else {
+          console.log(`  ${YELLOW}⚠️  statusLine is configured with another command:${RESET} ${cmd}`);
+          console.log(`     Run ${CYAN}ccs install${RESET} to switch to this tool.`);
+        }
+      } else {
+        console.log(`  ${YELLOW}⚠️  statusLine is missing from settings.json${RESET}`);
+        console.log(`     Run ${CYAN}ccs install${RESET} to enable statusline.`);
+        hasError = true;
+      }
+    } catch (e) {
+      console.log(`  ${RED}✖ Failed to parse settings.json: ${e.message}${RESET}`);
+      hasError = true;
+    }
+  }
+
+  // 2. Configuration check
+  console.log(`\n${BOLD}[2/3] Configuration File Check (~/.claude/statusline.config.json):${RESET}`);
+  if (!fs.existsSync(configPath)) {
+    console.log(`  ${YELLOW}⚠️  statusline.config.json not found (using defaults)${RESET}`);
+    console.log(`     Run ${CYAN}ccs init-config${RESET} to generate one with full comments.`);
+  } else {
+    try {
+      const raw = fs.readFileSync(configPath, "utf8");
+      const cfg = parseJsonWithComments(raw);
+      if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+        console.log(`  ${GREEN}✔ statusline.config.json is valid JSONC${RESET}`);
+        const activeFields = Array.isArray(cfg.fields) ? cfg.fields : DEFAULT_CONFIG.fields;
+        console.log(`    Active fields (${activeFields.length}): ${CYAN}${activeFields.join(", ")}${RESET}`);
+        console.log(`    Theme: ${CYAN}${cfg.theme || "default"}${RESET} | Delimiter: ${CYAN}${JSON.stringify(cfg.delimiter || "|")}${RESET}`);
+      } else {
+        console.log(`  ${RED}✖ Configuration file root must be a JSON object${RESET}`);
+        hasError = true;
+      }
+    } catch (e) {
+      console.log(`  ${RED}✖ Failed to parse statusline.config.json: ${e.message}${RESET}`);
+      hasError = true;
+    }
+  }
+
+  // 3. Git Environment & Response Check
+  console.log(`\n${BOLD}[3/3] Git Environment & Responsiveness:${RESET}`);
+  const startGit = Date.now();
+  const gitOut = readGitStatus(process.cwd(), 0);
+  const gitMs = Date.now() - startGit;
+  if (gitOut === null) {
+    console.log(`  ${DIM}ℹ Current directory is not a Git repository or Git is unavailable (skipped).${RESET}`);
+  } else {
+    console.log(`  ${GREEN}✔ Git status responded in ${gitMs}ms${RESET}`);
+    const firstLine = gitOut.split("\n")[0] || "";
+    console.log(`    Branch state: ${DIM}${firstLine}${RESET}`);
+  }
+
+  console.log();
+  if (hasError) {
+    console.log(`${YELLOW}${BOLD}Doctor detected potential issues.${RESET} Run ${CYAN}ccs install${RESET} to repair.`);
+  } else {
+    console.log(`${GREEN}${BOLD}✔ All systems healthy!${RESET} Claude Code Statusline is ready to go.`);
+  }
+  console.log();
+}
+
 function showHelp() {
   console.log(`
 ${BOLD}claude-code-status (ccs)${RESET}
@@ -476,6 +559,7 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}install${RESET}      Configure ~/.claude/settings.json (or repair: ccs fix)
                   Add ${DIM}--if-unset${RESET} to skip when a statusLine already exists
   ${CYAN}uninstall${RESET}    Remove statusline from ~/.claude/settings.json
+  ${CYAN}doctor${RESET}       Check installation health, settings and config integrity
   ${CYAN}ui [name]${RESET}    Interactive UI style picker & switcher (or apply by name/number)
   ${CYAN}theme <name>${RESET} Set color theme (default, catppuccin, nord, tokyo)
   ${CYAN}delimiter <s>${RESET} Set delimiter symbol (default: "|", e.g. "/" or "•")
@@ -509,6 +593,8 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   install(process.argv.includes("--if-unset"));
 } else if (arg === "uninstall" || arg === "remove") {
   uninstall();
+} else if (arg === "doctor" || arg === "check") {
+  doctor();
 } else if (arg === "theme" || arg === "color") {
   setTheme(process.argv[3]);
 } else if (arg === "ui" || arg === "preset") {
