@@ -1227,3 +1227,216 @@ test("cli toggle command adds and removes fields from configuration dynamically"
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("truncateMiddleByWidth handles ASCII and CJK strings accurately based on visual column widths", () => {
+  const { truncateMiddleByWidth, getStringWidth } = require("../lib/utils.js");
+
+  // ASCII string truncation
+  const ascii = "feat/user-authentication-flow";
+  const truncAscii = truncateMiddleByWidth(ascii, 15);
+  assert.ok(truncAscii.includes("..."), "Should contain ellipsis");
+  assert.ok(getStringWidth(truncAscii) <= 15, `Width ${getStringWidth(truncAscii)} should be <= 15`);
+
+  // CJK East Asian string truncation
+  const cjk = "feat/用户管理中心重构-v2";
+  const truncCjk = truncateMiddleByWidth(cjk, 16);
+  assert.ok(truncCjk.includes("..."), "Should contain ellipsis");
+  assert.ok(getStringWidth(truncCjk) <= 16, `Width ${getStringWidth(truncCjk)} should be <= 16`);
+
+  // Short string should not be truncated
+  const short = "main";
+  assert.equal(truncateMiddleByWidth(short, 10), "main");
+});
+
+test("getSessionDelta tracks token differences across calls", () => {
+  const { getSessionDelta } = require("../lib/utils.js");
+  const sid = `test-sess-${Date.now()}`;
+
+  // First turn: no previous data -> returns null
+  const d1 = getSessionDelta(sid, 10000);
+  assert.equal(d1, null);
+
+  // Second turn: increased by 2500 -> returns 2500
+  const d2 = getSessionDelta(sid, 12500);
+  assert.equal(d2, 2500);
+
+  // Third turn: increased by 30000 (surge) -> returns 30000
+  const d3 = getSessionDelta(sid, 42500);
+  assert.equal(d3, 30000);
+});
+
+test("context renderer formats context delta and surge alert when showContextDelta is enabled", () => {
+  const sid = `test-context-delta-${Date.now()}`;
+  const input1 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 10000, context_window_size: 200000 },
+  };
+  // Render turn 1 (seeds cache)
+  renderStatusline(input1, { colors: false, fields: ["context"], showContextDelta: true });
+
+  // Render turn 2 with surge (> 20000 increase)
+  const input2 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 35000, context_window_size: 200000 },
+  };
+  const out2 = renderStatusline(input2, {
+    colors: false,
+    fields: ["context"],
+    showContextDelta: true,
+    contextSurgeThreshold: 20000,
+  });
+  assert.ok(out2.includes("(+25.0k⚠️)"), `Expected (+25.0k⚠️) in output, got: ${out2}`);
+
+  // Render turn 3 with normal small increase (< 20000)
+  const input3 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 36200, context_window_size: 200000 },
+  };
+  const out3 = renderStatusline(input3, {
+    colors: false,
+    fields: ["context"],
+    showContextDelta: true,
+    contextSurgeThreshold: 20000,
+  });
+  assert.ok(out3.includes("(+1.2k)"), `Expected (+1.2k) in output, got: ${out3}`);
+  assert.ok(!out3.includes("⚠️"), "Normal increase should not have ⚠️");
+});
+
+test("cost renderer formats costBudget and alerts when budget is exceeded", () => {
+  // Below budget ($1.20 / $2.00)
+  const underInput = { cost: { total_cost_usd: 1.20 } };
+  const underOut = renderStatusline(underInput, { colors: false, fields: ["cost"], costBudget: 2.0 });
+  assert.ok(underOut.includes("$1.20/$2.00"), `Expected $1.20/$2.00, got: ${underOut}`);
+  assert.ok(!underOut.includes("❗"), "Under budget should not have ❗");
+
+  // Exceeded budget ($2.35 / $2.00) -> adds ❗ alert
+  const overInput = { cost: { total_cost_usd: 2.35 } };
+  const overOut = renderStatusline(overInput, { colors: false, fields: ["cost"], costBudget: 2.0 });
+  assert.ok(overOut.includes("$2.35/$2.00❗"), `Expected $2.35/$2.00❗, got: ${overOut}`);
+
+  // In CNY currency (¥14.50 / ¥15.00)
+  const cnyInput = { cost: { total_cost_usd: 2.0 } }; // 2.0 * 7.25 = 14.5 CNY
+  const cnyOut = renderStatusline(cnyInput, {
+    colors: false,
+    fields: ["cost"],
+    currency: "CNY",
+    exchangeRate: 7.25,
+    costBudget: 15.0,
+  });
+  assert.ok(cnyOut.includes("¥14.50/¥15.00"), `Expected ¥14.50/¥15.00, got: ${cnyOut}`);
+});
+
+test("session_id renderer formats short session hash", () => {
+  const input = { session_id: "8f3a1c92-b432-4d22-965a-112233445566" };
+  const out = renderStatusline(input, { colors: false, fields: ["session_id"] });
+  assert.equal(out, "id:8f3a1c92");
+
+  // Missing or empty
+  const emptyOut = renderStatusline({}, { colors: false, fields: ["session_id"] });
+  assert.equal(emptyOut, "");
+});
+
+test("contextDisplayMode supports remaining and both modes", () => {
+  const input = {
+    context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+  };
+
+  // 1. "remaining" mode
+  const outRem = renderStatusline(input, {
+    colors: false,
+    fields: ["context"],
+    contextDisplayMode: "remaining",
+  });
+  assert.ok(outRem.includes("(142.0k left)"), `Expected (142.0k left), got: ${outRem}`);
+
+  // 2. "both" mode
+  const outBoth = renderStatusline(input, {
+    colors: false,
+    fields: ["context"],
+    contextDisplayMode: "both",
+  });
+  assert.ok(outBoth.includes("58.0k/200.0k, 142.0k left"), `Expected 58.0k/200.0k, 142.0k left, got: ${outBoth}`);
+
+  // 3. "used" mode (default)
+  const outUsed = renderStatusline(input, {
+    colors: false,
+    fields: ["context"],
+    contextDisplayMode: "used",
+  });
+  assert.ok(outUsed.includes("58.0k/200.0k"), `Expected 58.0k/200.0k, got: ${outUsed}`);
+  assert.ok(!outUsed.includes("left"), `Should not contain left in used mode, got: ${outUsed}`);
+});
+
+test("getGitStashCount inspects reflog directly and handles worktrees/repos cleanly", () => {
+  const { getGitStashCount } = require("../lib/utils.js");
+  // Non-repo dir returns 0
+  assert.equal(getGitStashCount(os.tmpdir()), 0);
+
+  // In a temp repo with mock stash reflog
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "stash-unit-test-"));
+  try {
+    const gitDir = path.join(tmpRepo, ".git");
+    const stashLogDir = path.join(gitDir, "logs", "refs");
+    fs.mkdirSync(stashLogDir, { recursive: true });
+    assert.equal(getGitStashCount(tmpRepo), 0);
+
+    // Write 2 mock stash reflog lines
+    fs.writeFileSync(path.join(stashLogDir, "stash"), "commit1 stash1\ncommit2 stash2\n", "utf8");
+    assert.equal(getGitStashCount(tmpRepo), 2);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("git renderer displays stash count when showGitStash is true", () => {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "git-stash-render-"));
+  try {
+    const gitDir = path.join(tmpRepo, ".git");
+    const stashLogDir = path.join(gitDir, "logs", "refs");
+    fs.mkdirSync(stashLogDir, { recursive: true });
+    fs.writeFileSync(path.join(stashLogDir, "stash"), "entry1\nentry2\nentry3\n", "utf8");
+
+    // Mock git status output via cache
+    const crypto = require("crypto");
+    const hash = crypto.createHash("sha1").update(tmpRepo).digest("hex").slice(0, 16);
+    const cacheFile = path.join(os.tmpdir(), `claude-code-status-git-${hash}.json`);
+    fs.writeFileSync(cacheFile, JSON.stringify({ at: Date.now(), output: "## feat/login\n" }), "utf8");
+
+    const out = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], showGitStash: true, gitCacheTtl: 10 }
+    );
+    assert.ok(out.includes("(stash:3)"), `Expected (stash:3) in output, got: ${out}`);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("session_name and version renderers format active session metadata and aliases", () => {
+  const input = {
+    session_name: "fix-auth",
+    version: "v2.1.92",
+  };
+
+  const outName = renderStatusline(input, { colors: false, fields: ["session_name"] });
+  assert.equal(outName, "[fix-auth]");
+
+  const outAliasName = renderStatusline({ sessionTitle: "review-pr" }, { colors: false, fields: ["name"] });
+  assert.equal(outAliasName, "[review-pr]");
+
+  const outVer = renderStatusline(input, { colors: false, fields: ["version"] });
+  assert.equal(outVer, "v2.1.92");
+
+  const outAliasVer = renderStatusline({ cli_version: "2.2.0" }, { colors: false, fields: ["cc_version"] });
+  assert.equal(outAliasVer, "v2.2.0");
+});
+
+test("THEMES includes dracula, gruvbox, and solarized-dark palettes", () => {
+  const { THEMES, getThemeColors } = require("../lib/utils.js");
+  assert.ok(THEMES.dracula && THEMES.dracula.CYAN.includes("139;233;253"));
+  assert.ok(THEMES.gruvbox && THEMES.gruvbox.YELLOW.includes("250;189;47"));
+  assert.ok(THEMES["solarized-dark"] && THEMES["solarized-dark"].CYAN.includes("42;161;152"));
+
+  const dracula = getThemeColors("dracula");
+  assert.equal(dracula.CYAN, THEMES.dracula.CYAN);
+});

@@ -957,7 +957,45 @@ function preview() {
         showCompactAlert: true,
       },
     },
+    {
+      title: "17. Session ID, Context Delta & Cost Budget (id:8f3a1c92 + (+32.5k⚠️) + $2.15/2.00❗)",
+      input: {
+        ...sampleInput,
+        session_id: "8f3a1c92-b432-4d22-965a-112233445566",
+        context_window: {
+          ...sampleInput.context_window,
+          context_window_size: 200000,
+          total_input_tokens: 145000,
+        },
+        cost: {
+          ...sampleInput.cost,
+          total_cost_usd: 2.15,
+        },
+      },
+      config: {
+        fields: ["model", "session_id", "context", "cost", "project", "git"],
+        showContextDelta: true,
+        costBudget: 2.0,
+      },
+    },
+    {
+      title: "18. Session Name, Context Remaining & Git Stash (name + remaining + stash)",
+      input: {
+        ...sampleInput,
+        session_name: "fix-auth",
+        version: "2.1.92",
+      },
+      config: {
+        fields: ["model", "session_name", "context", "project", "git", "version"],
+        contextDisplayMode: "remaining",
+        showGitStash: true,
+      },
+    },
   ];
+
+  // Prime session state for scenario 17 demonstration
+  const { getSessionDelta } = require("../lib/utils");
+  getSessionDelta("8f3a1c92-b432-4d22-965a-112233445566", 112500);
 
   scenarios.forEach(({ title, input, config }) => {
     console.log(`${DIM}${title}${RESET}`);
@@ -1096,7 +1134,7 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}import <file>${RESET}    Import and apply configuration file (with automatic backup)
   ${CYAN}reset [target]${RESET}   Reset configuration (config) or clear cache (cache)
   ${CYAN}ui [name]${RESET}        Interactive UI style picker & switcher (or apply by name/number)
-  ${CYAN}theme <name>${RESET}     Set color theme (default, catppuccin, nord, tokyo)
+  ${CYAN}theme <name>${RESET}     Set color theme (default, catppuccin, nord, tokyo, dracula, gruvbox, solarized-dark)
   ${CYAN}delimiter <s>${RESET}    Set delimiter symbol (default: "|", e.g. "/" or "•")
   ${CYAN}preview${RESET}          Preview statusline styles and layouts
   ${CYAN}init-config${RESET}      Generate ~/.claude/statusline.config.json with full annotations
@@ -1110,6 +1148,8 @@ ${BOLD}DEFAULT FIELDS:${RESET}
 
 ${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json or use ccs set fields ...):${RESET}
   ${CYAN}fast${RESET}                 Fast mode indicator (⚡fast, toggled by /fast)
+  ${CYAN}session_id${RESET}           Short session ID for easy resume (e.g. id:8f3a1c92)
+  ${CYAN}session_name${RESET}         Session custom title / name (e.g. [fix-auth])
   ${CYAN}todo${RESET}                 Task / Todo checklist progress (e.g. todo: 2/5 or ✓ 5/5)
   ${CYAN}compact${RESET}              Auto-compact alert badge (⚠️compact when context >= 80%)
   ${CYAN}cost${RESET}                 Session cost in USD / CNY (with custom pricing multiplier)
@@ -1124,6 +1164,7 @@ ${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json or use ccs
   ${CYAN}mcp${RESET}                  Configured MCP servers count (e.g. MCP:2)
   ${CYAN}effort${RESET}               Claude 3.7 reasoning effort level
   ${CYAN}output_style${RESET}         Output style tag (e.g. [concise])
+  ${CYAN}version${RESET}              Claude Code CLI runtime version (e.g. v2.1.92)
 
 ${BOLD}PIPED USAGE:${RESET}
   cat session.json | ccs

@@ -128,10 +128,13 @@ node ./bin/cli.js install
 
 ### 切换调色板主题
 ```bash
-ccs theme default      # 经典标准 ANSI 16 色 (高兼容)
-ccs theme catppuccin   # Mocha 柔和马卡龙 24-bit TrueColor
-ccs theme nord         # 北极光冷淡蓝灰 24-bit TrueColor
-ccs theme tokyo        # Tokyo Night 赛博暗夜 24-bit TrueColor
+ccs theme default        # 经典标准 ANSI 16 色 (高兼容)
+ccs theme catppuccin     # Mocha 柔和马卡龙 24-bit TrueColor
+ccs theme nord           # 北极光冷淡蓝灰 24-bit TrueColor
+ccs theme tokyo          # Tokyo Night 赛博暗夜 24-bit TrueColor
+ccs theme dracula        # Dracula 吸血鬼暗紫 24-bit TrueColor
+ccs theme gruvbox        # Gruvbox 复古胡桃木暖橙 24-bit TrueColor
+ccs theme solarized-dark # Solarized 经典暗青蓝 24-bit TrueColor
 ```
 
 ### 修改分隔符 (Delimiter)
@@ -186,7 +189,10 @@ ccs config list                      # 列出全部配置项及其是否被自�
     // "effort",    // 思考级别/推理强度
     // "output_style", // 输出风格标签
     // "speed",     // 模型生成吞吐速率 (例如: 85 t/s)
-    // "repo"       // 规范远程仓库标识 (例如: owner/repo)
+    // "repo",      // 规范远程仓库标识 (例如: owner/repo)
+    // "session_id",// 会话短哈希标识 (例如: id:8f3a1c92，多终端/tmux 协作跟踪极佳)
+    // "session_name", // 会话自定义标题名称 (例如: [fix-auth]，多任务分屏极佳)
+    // "version"    // Claude Code CLI 运行时版本 (例如: v2.1.92)
   ],
 
   // 2. 终端显示行数
@@ -198,6 +204,7 @@ ccs config list                      # 列出全部配置项及其是否被自�
   // 3. Git 状态设置
   "showGitAheadBehind": false, // 是否显示与远端分支的上下游同步差异 (如 main ↑2 ↓1*)
   "showGitStatusStats": false, // 是否细分显示暂存(+)/未暂存(*)/未跟踪(?)文件统计 (如 main +2 *1 ?3)
+  "showGitStash": false,       // 是否检测并提示未恢复的 Git 暂存 stash 数量 (如 main* (stash:2)，默认: false)
   "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
   "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
@@ -209,12 +216,16 @@ ccs config list                      # 列出全部配置项及其是否被自�
   "contextWindowSize": 0,
   "showCompactAlert": false,   // 上下文达到阈值时是否在 context 进度条旁追加 ⚠️compact 告警
   "compactAlertThreshold": 80, // 触发 compact 预警的百分比阈值 (默认: 80)
+  "showContextDelta": false,   // 是否展示单轮对话 Token 增量 (例如: (+1.2k) 或突增告警 (+32.5k⚠️))
+  "contextSurgeThreshold": 20000, // 单轮 Token 突增告警阈值 (默认: 20000)
+  "contextDisplayMode": "used", // 上下文数值展示模式: "used" (已用量 58k/200k), "remaining" (可用余量 142k left), "both" (两者均显示)
 
   // 5. 费用与汇率计算 (基于 Claude Code 提供的 total_cost_usd 结合中转倍率折算，非独立统计 Token 账单)
   "currency": "USD",          // 货币单位: "USD", "CNY", 或 "BOTH" (双币种同时显示)
   "costMultiplier": 1.0,      // 中转站/代理加价倍率 (如使用 1.2 或 1.5 倍中转 API 时按此倍率计算实际花费)
   "exchangeRate": 7.25,       // 美元兑人民币汇率
   "showCostMultiplier": false,// 是否在费用后方标注倍率角标 (例如: $0.27 (x1.5))
+  "costBudget": 0.0,          // 会话费用硬预算 (以有效美元计，0 为不限，超支标出 ❗ 警示，如: $3.50/$2.00❗)
   "costWarningThreshold": 1.0,// 费用黄色告警阈值 (以美元计，默认: 1.0)
   "costDangerThreshold": 5.0, // 费用红色告警阈值 (以美元计，默认: 5.0)
 
@@ -251,18 +262,21 @@ ccs config list                      # 列出全部配置项及其是否被自�
 | 字段名称 | 描述说明 | 默认状态 | 示例效果 |
 | :--- | :--- | :---: | :--- |
 | `model` | AI 模型名称 (自动清理日期，支持别名) | 开启 | `claude-3-7-sonnet` 或 `Sonnet 3.7` |
-| `context` | 上下文使用量及进度条 (支持反向块读取) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` |
+| `context` | 上下文使用量及进度条 (支持反向块读取、单轮 Token 增量/突增告警及可用余量模式) | 开启 | `[██░░░░░░] 29% (58.0k/200.0k)` 或 `(142.0k left)` |
 | `project` | 当前工作区项目目录名 (支持 Monorepo 相对路径与多目录 +N dirs 标识) | 开启 | `your-project` 或 `repo:apps/web (+2 dirs)` |
-| `git` | Git 分支与状态 (带磁盘缓存、超长省略、Worktree、细分暂存 +N/*N/?N 以及 (merging)/(rebasing)/(cherry-pick) 危险状态提示) | 开启 | `main*` 或 `main (rebasing)*` |
+| `git` | Git 分支与状态 (带磁盘缓存、按物理列宽超长省略、Worktree、细分暂存、stash 暂存盘点及 (merging)/(rebasing) 危险状态提示) | 开启 | `main*` 或 `main* (stash:2)` |
 | `fast` | Fast 极速模式状态指示 (检测到 fast_mode 时显示 ⚡fast，原生对应 `/fast`) | 可选 | `⚡fast` |
 | `todo` | Task / Todo 任务清单实时进度与计数 (会话无待办时自动隐形) | 可选 | `todo: 2/5` 或 `✓ 5/5 todos` |
 | `compact` | 上下文满载压缩预警 (达到 80% 阈值时提示，提醒及时整理防性能衰减) | 可选 | `⚠️compact` |
 | `tokens` | Token 消耗明细 (Input / Cache / Thinking 思考 / Output) | 可选 | `I:12k C:320k T:8k O:3k` |
+| `session_id` | 会话短哈希标识 (提取 session_id 前 8 位，适合多窗口定位跟踪) | 可选 | `id:8f3a1c92` |
+| `session_name` | 会话自定义名称 / 标题 (多窗口分屏标识任务极佳，无命名时自动隐形) | 可选 | `[fix-auth]` |
 | `session_duration` | 会话持续运行时间 (支持可选展示 API 耗时) | 可选 | `38m` 或 `1h 24m (api: 12m)` |
 | `api_duration` | 纯等待 Claude API 思考生成的响应耗时 | 可选 | `api:12m` |
 | `speed` | 模型生成吞吐速率 (Tokens per second) | 可选 | `85 t/s` |
 | `repo` | 规范远程 Git 仓库标识 (owner/repo) | 可选 | `PipiCraft/claude-code-status` |
-| `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率、汇率折算与梯度变色告警) | 可选 | `$0.18 (¥1.34)` 或 `$0.27 (x1.5)` |
+| `version` | Claude Code CLI 运行时版本号 (无痛掌握底层工具版本) | 可选 | `v2.1.92` |
+| `cost` | 会话费用 (以 total_cost_usd 为基准，支持中转倍率、汇率折算、硬预算上限及梯度变色告警) | 可选 | `$0.18 (¥1.34)` 或 `$2.40/$2.00❗` |
 | `rate_limit` | 5 小时、7 天及月度限额、倒计时与可选消耗趋势 | 可选 | `5h:28%(2h14m)` 或 `5h:72%↑` |
 | `cache` | Prompt Cache 命中率百分比 | 可选 | `Cache:92%` |
 | `lines` | 代码吞吐量 (行数增删) | 可选 | `+185/-32` |

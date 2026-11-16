@@ -1,6 +1,6 @@
 {
   "name": "claude-code-status",
-  "version": "1.0.9",
+  "version": "1.0.11",
   "description": "A clean, ultra-fast and zero-dependency statusline and observability suite for Claude Code",
   "main": "bin/statusline.js",
   "bin": {
