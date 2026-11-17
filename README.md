@@ -37,7 +37,14 @@ Sonnet 3.7 | [██░░░░░░] 29% (58.0k/200.0k) | $0.18 (¥1.34) | 5h
 ## 功能特性
 
 - **精简默认项**：默认仅展示最核心的 4 项：模型名称、上下文进度条、项目目录名、Git 分支与脏状态。
-- **极客短命令 `ccs`**：全局安装后支持使用 3 字符短别名 `ccs` 进行全部操作（`ccs ui`、`ccs theme`、`ccs preview`）。
+- **极客短命令 `ccs` 与原生 Slash Command**：全局安装后支持使用 3 字符短别名 `ccs` 进行全部操作；安装时自动接入 Claude Code 原生斜杠命令（`~/.claude/commands/ccs.md`），在 Claude Code 内直接输入 `/ccs` 即可免切窗口即时调整配置。
+- **交互式特性面板 `ccs menu`**：纯原生零依赖终端开关面板，免记长配置参数，一键开关 Git 冲突拦截、突增防线、标题同步等高级选项。
+- **Git 冲突与暂存区防误丢警示**：零子进程原生感知 Git rebase/merge 冲突（`⚠️CONFLICT:2`）；可选开启暂存区防丢提醒（`showGitStagedAlert`，如 `(+2 staged)`），严防误重置与代码污染。
+- **上下文暴增预警与安全轮次预估**：单轮 Token 暴增时触发红色 `⚠️SURGE(+35k)` 醒目标签；可选开启安全可用轮次预估（`showContextRunway`，如 `(~2 turns left)`），精准预判执行 `/compact` 时机。
+- **单轮消费暴涨防线**：支持单轮次花费差值追踪（`showCostDelta`，如 `(+$0.15)`），单轮超额突增时高亮告警（`costSurgeThreshold`，如 `(+$0.82⚠️)`），防范 Extended Thinking 导致账单失控。
+- **终端分屏/窗口标题同步**：可选开启 `syncTerminalTitle: true`，通过 ANSI OSC 0 协议直接同步终端窗口/标签页标题（如 `Claude: my-project [task] (main)`），彻底解决 3~5 个终端分屏任务混淆痛点且 0 字符宽度占用。
+- **IDE 协议深度直达链接**：支持将项目路径超链接配置为 `ideLink: "vscode"` 或 `"cursor"`，在终端一键点击直接在代码编辑器中打开项目工程。
+- **进度条质感风格多样化**：支持配置 `progressBarStyle` 为经典方块（`blocks` `[██░░]`）、极细线条（`smooth` `[━━┈┈]`）、圆点（`dots` `[●●○○]`）与 ASCII 等号（`ascii` `[==--]`）。
 - **色彩主题预设**：内置 4 套精调调色板：`default`（标准兼容 ANSI）、`catppuccin`（Mocha 柔和马卡龙）、`nord`（北极光冷淡蓝灰）、`tokyo`（Tokyo Night 赛博暗夜）。
 - **模型别名与美化**：自动剥离模型名称末尾的冗长日期后缀（如 `claude-3-7-sonnet-20250219` 自动简化为 `claude-3-7-sonnet`），并支持在配置文件中设置个性化别名。
 - **会话费用换算与中转倍率计算**：以 Claude Code 上报的 `total_cost_usd` 为基准，支持设置中转站/代理倍率（`costMultiplier`，如 1.5 倍）和汇率（`exchangeRate`），自动计算实际消费金额（支持 USD、CNY 或双币种对照展示，亦可附带 `(x1.5)` 倍率角标；注：基于官方输出数据折算，非本地自主统计 Token 账单）。
@@ -68,6 +75,7 @@ claude-code-status install
 安装后，您可以在终端任意位置直接使用 **`ccs`** 命令：
 ```bash
 ccs ui                   # 交互式选择排版风格 (单行、双行、圆点、斜杠、圆角胶囊、尖角箭头、窄屏紧凑、Unicode 符号)
+ccs menu                 # 交互式特性面板 (一键切换突增告警、轮次预估、IDE跳转、进度条形状)
 ccs theme catppuccin     # 切换色彩主题 (default, catppuccin, nord, tokyo)
 ccs delimiter /          # 自定义分隔符号 (如 / 或 •)
 ccs set <key> <val>      # 快速修改配置 (如 ccs set showRateLimitPace true 或 ccs set lines 2)

@@ -37,7 +37,14 @@ Statusline scripts are executed as independent subprocesses every time the promp
 ## Features
 
 - **Minimal Defaults**: Shows model name, context window usage with progress bar, current directory, and Git branch.
-- **Short CLI Alias**: Installed as `claude-code-status` with a 3-letter alias `ccs` (`ccs ui`, `ccs theme`, `ccs preview`).
+- **Short CLI Alias & Native Slash Command**: Installed as `claude-code-status` with a 3-letter alias `ccs` (`ccs ui`, `ccs theme`, `ccs preview`). Automatically configures native Claude Code slash command (`~/.claude/commands/ccs.md`) so you can type `/ccs` directly in chat without leaving the session.
+- **Interactive Settings Menu `ccs menu`**: Zero-dependency terminal settings panel to toggle surge protection, context runway, IDE links, and progress bar styles with 1 keypress.
+- **Git Conflict & Staged Alert**: Zero-subprocess live detection of Git rebase/merge conflicts (`⚠️CONFLICT:2`) and uncommitted staged files (`showGitStagedAlert`, e.g. `(+2 staged)`), preventing accidental resets.
+- **Context Surge & Runway Estimation**: Highlights single-turn token surges (`⚠️SURGE(+35k)`); optionally estimates safe remaining conversational turns (`showContextRunway`, e.g. `(~2 turns left)`).
+- **Per-Turn Cost Surge Alert**: Tracks incremental cost per turn (`showCostDelta`, e.g. `(+$0.15)`) with customizable surge thresholds (`costSurgeThreshold`, e.g. `(+$0.82⚠️)`), preventing runaway bills.
+- **Terminal Split/Tab Title Synchronization**: Optional `syncTerminalTitle: true` updates terminal window and tab titles via ANSI OSC 0 (e.g. `Claude: my-project [task] (main)`), preventing confusion across 3-5 split panes with 0 visual width penalty.
+- **IDE Protocol Deep Links**: Open workspace directly in your preferred editor (`ideLink: "vscode"` or `"cursor"`) with terminal Ctrl/Cmd-clickable OSC 8 links.
+- **Progress Bar Glyph Styles**: Choose between classic blocks (`blocks` `[██░░]`), sleek lines (`smooth` `[━━┈┈]`), dots (`dots` `[●●○○]`), and ASCII (`ascii` `[==--]`).
 - **Color Themes**: 4 built-in palettes: `default` (standard ANSI), `catppuccin` (Mocha TrueColor), `nord`, and `tokyo` (Tokyo Night).
 - **Model Aliases**: Automatically strips trailing date suffixes (e.g. `claude-3-7-sonnet-20250219` becomes `claude-3-7-sonnet`) and supports user-defined name mappings.
 - **Cost Conversion & Proxy Multiplier**: Scales Claude Code's reported `total_cost_usd` by a customizable proxy/relay multiplier (`costMultiplier`, e.g. `1.5`x) and exchange rate (`exchangeRate`), displaying the calculated actual cost in USD, CNY, or both, with an optional multiplier tag (`(x1.5)`; note: calculated from reported cost, not an independent token billing engine).
@@ -68,6 +75,7 @@ claude-code-status install
 After installation, use `ccs` to manage settings:
 ```bash
 ccs ui                   # Choose UI style (single, dual, dot, slash, round bubble, powerline arrow, compact, unicode)
+ccs menu                 # Interactive settings panel (toggle surge, runway, IDE links, bar styles)
 ccs theme catppuccin     # Switch color theme (default, catppuccin, nord, tokyo)
 ccs delimiter /          # Set separator character
 ccs set <key> <val>      # Modify setting (e.g. ccs set showRateLimitPace true or ccs set lines 2)

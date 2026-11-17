@@ -83,9 +83,35 @@ function install(ifUnset = false) {
   };
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+
+  // Install Claude Code native slash command: ~/.claude/commands/ccs.md
+  try {
+    const commandsDir = path.join(claudeDir, "commands");
+    if (!fs.existsSync(commandsDir)) {
+      fs.mkdirSync(commandsDir, { recursive: true });
+    }
+    const ccsCommandPath = path.join(commandsDir, "ccs.md");
+    const cliPath = path.resolve(__dirname, "cli.js").replace(/\\/g, "/");
+    const slashContent = [
+      "---",
+      "description: Configure, preview or diagnose claude-code-status (ccs)",
+      "---",
+      "",
+      "Execute the `ccs` statusline management tool with arguments:",
+      "```bash",
+      `node "${cliPath}" $ARGUMENTS`,
+      "```",
+      "",
+    ].join("\n");
+    fs.writeFileSync(ccsCommandPath, slashContent, "utf8");
+  } catch (err) {
+    // Non-fatal if commands directory is not writable
+  }
+
   console.log(`${GREEN}${BOLD}✔ Successfully configured claude-code-status (ccs)!${RESET}`);
-  console.log(`  Target:  ${CYAN}${settingsPath}${RESET}`);
-  console.log(`  Command: ${DIM}node "${statuslinePath}"${RESET}\n`);
+  console.log(`  Target:    ${CYAN}${settingsPath}${RESET}`);
+  console.log(`  Command:   ${DIM}node "${statuslinePath}"${RESET}`);
+  console.log(`  Slash Cmd: ${CYAN}~/.claude/commands/ccs.md${RESET} (type /ccs in Claude Code)\n`);
   console.log(`Default fields enabled: ${GREEN}model, context, project, git${RESET}`);
   console.log(`Custom config created at: ${CYAN}${getClaudeSettingsPath().configPath}${RESET}`);
   console.log(`You can uncomment optional features (cost, rate_limit, cache, lines, mcp) anytime in this file.\n`);
@@ -119,6 +145,16 @@ function uninstall() {
 
     delete settings.statusLine;
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+
+    // Also remove installed slash command if present
+    try {
+      const { claudeDir } = getClaudeSettingsPath();
+      const ccsCommandPath = path.join(claudeDir, "commands", "ccs.md");
+      if (fs.existsSync(ccsCommandPath)) {
+        fs.unlinkSync(ccsCommandPath);
+      }
+    } catch {}
+
     console.log(`${GREEN}${BOLD}✔ Successfully removed statusLine configuration from settings.json!${RESET}`);
   } catch (e) {
     console.error(`${RED}Failed to update settings.json: ${e.message}${RESET}`);
@@ -714,6 +750,107 @@ function showUiPicker(targetArg) {
   }
 }
 
+function showConfigMenu() {
+  const { configPath } = getClaudeSettingsPath();
+  initConfig(false);
+
+  let cfg = {};
+  try {
+    if (fs.existsSync(configPath)) {
+      cfg = parseJsonWithComments(fs.readFileSync(configPath, "utf8")) || {};
+    }
+  } catch {}
+
+  const merged = { ...DEFAULT_CONFIG, ...cfg };
+
+  const menuItems = [
+    {
+      key: "showSurgeAlert",
+      name: "单轮 Token 突增告警 (Surge Protection)",
+      desc: "单轮暴增 >= 20k 时醒目标红 ⚠️SURGE(+35k)",
+      type: "toggle",
+    },
+    {
+      key: "showContextRunway",
+      name: "上下文安全可用轮次预估 (Context Runway)",
+      desc: "根据近几轮消耗速度预估安全轮次 (~3 turns left)",
+      type: "toggle",
+    },
+    {
+      key: "showCostDelta",
+      name: "单轮单次消费暴涨防线 (Cost Surge Alert)",
+      desc: "单轮花费超过 $0.50 时高亮警报 (+$0.82⚠️)",
+      type: "toggle",
+    },
+    {
+      key: "showGitStagedAlert",
+      name: "Git 暂存区防误丢防误重置 (Staged Changes Alert)",
+      desc: "暂存区有未提交代码时明确提示 (+N staged)",
+      type: "toggle",
+    },
+    {
+      key: "syncTerminalTitle",
+      name: "终端窗口/分屏标题同步 (OSC 0 Title Sync)",
+      desc: "通过 OSC 0 协议直接同步终端标签页标题，防分屏混淆",
+      type: "toggle",
+    },
+    {
+      key: "ideLink",
+      name: "IDE 协议点击直达 (OSC 8 Deep Link)",
+      desc: "终端点击项目名时唤起的编辑器 (file / vscode / cursor / zed)",
+      type: "cycle",
+      options: ["file", "vscode", "cursor", "zed"],
+    },
+    {
+      key: "progressBarStyle",
+      name: "进度条形状质感风格 (Progress Bar Style)",
+      desc: "blocks (方块), smooth (线条), dots (圆点), ascii (等号)",
+      type: "cycle",
+      options: ["blocks", "smooth", "dots", "ascii"],
+    },
+  ];
+
+  console.log(`\n${BOLD}claude-code-status (ccs) 交互式特性面板:${RESET}\n`);
+
+  menuItems.forEach((item, idx) => {
+    const val = merged[item.key];
+    let valStr = "";
+    if (item.type === "toggle") {
+      valStr = val ? `${GREEN}${BOLD}[✔ 已开启]${RESET}` : `${DIM}[  已关闭]${RESET}`;
+    } else {
+      valStr = `${CYAN}${BOLD}[${val || item.options[0]}]${RESET}`;
+    }
+    console.log(`  ${CYAN}[${idx + 1}]${RESET} ${BOLD}${item.name}${RESET}: ${valStr}`);
+    console.log(`      ${DIM}${item.desc}${RESET}`);
+  });
+  console.log();
+
+  if (process.stdin.isTTY) {
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(`${BOLD}请输入要切换的特性编号 [1-${menuItems.length}] (回车退出): ${RESET}`, (answer) => {
+      rl.close();
+      const num = parseInt(answer.trim(), 10);
+      if (!isNaN(num) && num >= 1 && num <= menuItems.length) {
+        const item = menuItems[num - 1];
+        let nextVal;
+        if (item.type === "toggle") {
+          nextVal = !merged[item.key];
+        } else {
+          const curIdx = item.options.indexOf(String(merged[item.key] || item.options[0]));
+          const nextIdx = (curIdx + 1) % item.options.length;
+          nextVal = item.options[nextIdx];
+        }
+        setConfig(item.key, String(nextVal));
+      } else if (answer.trim()) {
+        console.log(`${YELLOW}无效的选项编号。${RESET}`);
+      }
+    });
+  } else {
+    console.log(`${DIM}使用 ccs set <key> <val> 命令修改配置，例如: ccs set showCostDelta true${RESET}\n`);
+  }
+}
+
 function preview() {
   console.log(`\n${BOLD}Claude Code Statusline Preview (Full Suite Showcase)${RESET}\n`);
 
@@ -991,11 +1128,81 @@ function preview() {
         showGitStash: true,
       },
     },
+    {
+      title: "19. Context Surge & File Bloat Alert (showSurgeAlert: true / surge field)",
+      input: {
+        ...sampleInput,
+        session_id: "surge-demo-session-1234",
+        context_window: {
+          ...sampleInput.context_window,
+          total_input_tokens: 185000,
+        },
+      },
+      config: {
+        fields: ["model", "context", "surge", "project", "git"],
+        showSurgeAlert: true,
+        contextSurgeThreshold: 20000,
+      },
+    },
+    {
+      title: "20. Terminal Title Sync & Multi-Pane Identifier (syncTerminalTitle: true)",
+      input: {
+        ...sampleInput,
+        session_name: "refactor-auth",
+      },
+      config: {
+        fields: ["model", "context", "project", "git"],
+        syncTerminalTitle: true,
+      },
+    },
+    {
+      title: "21. Context Runway & Smooth Glyphs (progressBarStyle: 'smooth' + (~2 turns left))",
+      input: {
+        ...sampleInput,
+        session_id: "runway-demo-session-987",
+        context_window: {
+          ...sampleInput.context_window,
+          context_window_size: 200000,
+          total_input_tokens: 165000,
+        },
+      },
+      config: {
+        fields: ["model", "context", "cost", "project", "git"],
+        progressBarStyle: "smooth",
+        showContextRunway: true,
+      },
+    },
+    {
+      title: "22. Cost Surge Alert, Staged Code & VS Code IDE Link (+$0.80⚠️ + (+2 staged) + vscode://)",
+      input: {
+        ...sampleInput,
+        session_id: "cost-surge-demo-555",
+        cost: {
+          ...sampleInput.cost,
+          total_cost_usd: 1.15,
+        },
+      },
+      config: {
+        fields: ["model", "context", "cost", "project", "git"],
+        showCostDelta: true,
+        costSurgeThreshold: 0.50,
+        showGitStagedAlert: true,
+        clickableProjectPath: true,
+        ideLink: "vscode",
+      },
+    },
   ];
 
-  // Prime session state for scenario 17 demonstration
-  const { getSessionDelta } = require("../lib/utils");
+  // Prime session state for scenarios demonstration
+  const { getSessionDelta, getSessionCostDelta } = require("../lib/utils");
   getSessionDelta("8f3a1c92-b432-4d22-965a-112233445566", 112500);
+  getSessionDelta("surge-demo-session-1234", 140000);
+  // Prime runway deltas (~15k per turn, 35k remaining -> ~2 turns left)
+  getSessionDelta("runway-demo-session-987", 135000);
+  getSessionDelta("runway-demo-session-987", 150000);
+  getSessionDelta("runway-demo-session-987", 165000);
+  // Prime cost delta
+  getSessionCostDelta("cost-surge-demo-555", 0.35);
 
   scenarios.forEach(({ title, input, config }) => {
     console.log(`${DIM}${title}${RESET}`);
@@ -1033,6 +1240,13 @@ function doctor() {
         console.log(`  ${YELLOW}⚠️  statusLine is missing from settings.json${RESET}`);
         console.log(`     Run ${CYAN}ccs install${RESET} to enable statusline.`);
         hasError = true;
+      }
+
+      const ccsCmdPath = path.join(claudeDir, "commands", "ccs.md");
+      if (fs.existsSync(ccsCmdPath)) {
+        console.log(`  ${GREEN}✔ Slash command /ccs is installed:${RESET} ${DIM}${ccsCmdPath}${RESET}`);
+      } else {
+        console.log(`  ${YELLOW}ℹ Slash command /ccs not found in ~/.claude/commands/ (run ccs install to add).${RESET}`);
       }
     } catch (e) {
       console.log(`  ${RED}✖ Failed to parse settings.json: ${e.message}${RESET}`);
@@ -1134,6 +1348,7 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}import <file>${RESET}    Import and apply configuration file (with automatic backup)
   ${CYAN}reset [target]${RESET}   Reset configuration (config) or clear cache (cache)
   ${CYAN}ui [name]${RESET}        Interactive UI style picker & switcher (or apply by name/number)
+  ${CYAN}menu${RESET}             Interactive settings & features toggler (0 dependencies)
   ${CYAN}theme <name>${RESET}     Set color theme (default, catppuccin, nord, tokyo, dracula, gruvbox, solarized-dark)
   ${CYAN}delimiter <s>${RESET}    Set delimiter symbol (default: "|", e.g. "/" or "•")
   ${CYAN}preview${RESET}          Preview statusline styles and layouts
@@ -1165,6 +1380,7 @@ ${BOLD}OPTIONAL FIELDS (Uncomment in ~/.claude/statusline.config.json or use ccs
   ${CYAN}effort${RESET}               Claude 3.7 reasoning effort level
   ${CYAN}output_style${RESET}         Output style tag (e.g. [concise])
   ${CYAN}version${RESET}              Claude Code CLI runtime version (e.g. v2.1.92)
+  ${CYAN}surge${RESET}                Context surge alert (⚠️SURGE(+35k) on abnormal token surge)
 
 ${BOLD}PIPED USAGE:${RESET}
   cat session.json | ccs
@@ -1184,6 +1400,8 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
   setTheme(process.argv[3]);
 } else if (arg === "ui" || arg === "preset") {
   showUiPicker(process.argv[3]);
+} else if (arg === "menu" || arg === "m") {
+  showConfigMenu();
 } else if (arg === "delimiter" || arg === "sep") {
   setDelimiter(process.argv[3]);
 } else if (arg === "preview" || arg === "p") {

@@ -152,6 +152,29 @@ function renderStatusline(input = {}, customConfig = {}) {
     result = renderFieldList(activeFields, context, delimiter);
   }
 
+  let titlePrefix = "";
+  if (config.syncTerminalTitle) {
+    const titleParts = [];
+    if (context.project) {
+      titleParts.push(context.project);
+    }
+    const sname = input.session_name || input.sessionTitle || input.session_title;
+    if (sname && typeof sname === "string" && sname.trim()) {
+      titleParts.push(`[${sname.trim()}]`);
+    } else if (input.session_id && typeof input.session_id === "string") {
+      titleParts.push(`[${input.session_id.trim().slice(0, 8)}]`);
+    }
+    const gitOut = readGitStatus(context.cwd, config.gitCacheTtl);
+    if (gitOut) {
+      const branchMatch = (gitOut.split("\n")[0] || "").match(/^## (?:No commits yet on )?(\S+?)(?:\.\.\.|\s|$)/);
+      if (branchMatch && branchMatch[1] && branchMatch[1] !== "HEAD") {
+        titleParts.push(`(${branchMatch[1]})`);
+      }
+    }
+    const fullTitle = `Claude: ${titleParts.join(" ")}`;
+    titlePrefix = `\x1b]0;${fullTitle}\x07`;
+  }
+
   const useColor =
     config.colors !== false &&
     config.colors !== "false" &&
@@ -162,7 +185,7 @@ function renderStatusline(input = {}, customConfig = {}) {
   if (!useColor) {
     return stripAnsi(result);
   }
-  return result;
+  return titlePrefix ? `${titlePrefix}${result}` : result;
 }
 
 /**

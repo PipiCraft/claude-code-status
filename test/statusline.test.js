@@ -1440,3 +1440,286 @@ test("THEMES includes dracula, gruvbox, and solarized-dark palettes", () => {
   const dracula = getThemeColors("dracula");
   assert.equal(dracula.CYAN, THEMES.dracula.CYAN);
 });
+
+test("git renderer detects and alerts unmerged merge/rebase conflicts", () => {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "claude-conflict-test-"));
+  try {
+    fs.mkdirSync(path.join(tmpRepo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(tmpRepo, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const crypto = require("crypto");
+    const hash = crypto.createHash("sha1").update(tmpRepo).digest("hex").slice(0, 16);
+    const cacheFile = path.join(os.tmpdir(), `claude-code-status-git-${hash}.json`);
+
+    // Scenario A: Unmerged conflict files (UU = both modified, AA = both added)
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        at: Date.now(),
+        output: "## main\nUU src/app.js\nAA docs/spec.md\nM package.json\n",
+      }),
+      "utf8"
+    );
+
+    const outConflict = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], gitCacheTtl: 10 }
+    );
+    assert.ok(outConflict.includes("⚠️CONFLICT:2"), `Expected ⚠️CONFLICT:2, got: ${outConflict}`);
+
+    // Scenario B: Clean / normal modifications with no conflicts
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        at: Date.now(),
+        output: "## main\nM src/app.js\n?? newfile.txt\n",
+      }),
+      "utf8"
+    );
+    const outClean = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], gitCacheTtl: 10 }
+    );
+    assert.ok(!outClean.includes("CONFLICT"), `Clean repo should not contain CONFLICT: ${outClean}`);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("context surge warning tag and standalone surge renderer", () => {
+  const sid = `test-surge-${Date.now()}`;
+  const input1 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 20000, context_window_size: 200000 },
+  };
+  // Turn 1: seed
+  renderStatusline(input1, { colors: false, fields: ["context", "surge"] });
+
+  // Turn 2: normal increase (+5k < 20k threshold)
+  const input2 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 25000, context_window_size: 200000 },
+  };
+  const outNormal = renderStatusline(input2, {
+    colors: false,
+    fields: ["context", "surge"],
+    showSurgeAlert: true,
+    contextSurgeThreshold: 20000,
+  });
+  assert.ok(!outNormal.includes("SURGE"), "Normal increase should not show SURGE");
+
+  // Turn 3: surge increase (+35k >= 20k threshold)
+  const input3 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 60000, context_window_size: 200000 },
+  };
+  const outSurge = renderStatusline(input3, {
+    colors: false,
+    fields: ["context", "surge"],
+    showSurgeAlert: true,
+    contextSurgeThreshold: 20000,
+  });
+  assert.ok(outSurge.includes("⚠️SURGE(+35.0k)"), `Expected ⚠️SURGE(+35.0k) in output, got: ${outSurge}`);
+});
+
+test("renderStatusline generates OSC 0 terminal title sequence when syncTerminalTitle is enabled", () => {
+  const input = {
+    session_name: "feature-login",
+    workspace: { current_dir: "/home/dev/my-project" },
+  };
+
+  // With syncTerminalTitle: false -> no OSC 0 sequence
+  const withoutTitle = renderStatusline(input, {
+    colors: true,
+    fields: ["model", "project"],
+    syncTerminalTitle: false,
+  });
+  assert.ok(!withoutTitle.includes("\x1b]0;"), "Should not contain OSC 0 when disabled");
+
+  // With syncTerminalTitle: true -> contains OSC 0 prefix setting terminal title
+  const withTitle = renderStatusline(input, {
+    colors: true,
+    fields: ["model", "project"],
+    syncTerminalTitle: true,
+  });
+  assert.ok(withTitle.includes("\x1b]0;Claude: my-project [feature-login]\x07"), `Expected OSC 0 title prefix, got: ${withTitle}`);
+
+  // Visual string width should ignore the zero-width OSC 0 escape sequence
+  const widthWith = getStringWidth(withTitle);
+  const widthWithout = getStringWidth(withoutTitle);
+  assert.equal(widthWith, widthWithout, "OSC 0 title sequence should occupy 0 visual terminal columns");
+});
+
+test("cli install writes Claude Code slash command and uninstall cleans it up", () => {
+  const home = makeSandboxHome("claude-slash-cmd-test-");
+  try {
+    const ccsCmdPath = path.join(home, ".claude", "commands", "ccs.md");
+
+    // Before install: does not exist
+    assert.equal(fs.existsSync(ccsCmdPath), false);
+
+    // Install
+    runCli(home, "install");
+    assert.equal(fs.existsSync(ccsCmdPath), true, "commands/ccs.md should be created by install");
+    const content = fs.readFileSync(ccsCmdPath, "utf8");
+    assert.ok(content.includes("description:"), "commands/ccs.md should include frontmatter");
+    assert.ok(content.includes("$ARGUMENTS"), "commands/ccs.md should forward $ARGUMENTS");
+
+    // Uninstall
+    runCli(home, "uninstall");
+    assert.equal(fs.existsSync(ccsCmdPath), false, "commands/ccs.md should be removed by uninstall");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("makeProgressBar supports smooth, dots, ascii and blocks styles", () => {
+  const { makeProgressBar } = require("../lib/utils.js");
+  const pBlocks = makeProgressBar(50, 8, "blocks");
+  assert.equal(pBlocks, "[████░░░░]");
+
+  const pSmooth = makeProgressBar(50, 8, "smooth");
+  assert.equal(pSmooth, "[━━━━┈┈┈┈]");
+
+  const pDots = makeProgressBar(50, 8, "dots");
+  assert.equal(pDots, "[●●●●○○○○]");
+
+  const pAscii = makeProgressBar(50, 8, "ascii");
+  assert.equal(pAscii, "[====----]");
+
+  // Fallback on unknown style
+  const pUnknown = makeProgressBar(50, 8, "nonexistent");
+  assert.equal(pUnknown, "[████░░░░]");
+});
+
+test("cost renderer formats single-turn cost delta and cost surge alert", () => {
+  const sid = `test-cost-delta-${Date.now()}`;
+  const input1 = {
+    session_id: sid,
+    cost: { total_cost_usd: 0.20 },
+  };
+  // Turn 1 seeds
+  renderStatusline(input1, { colors: false, fields: ["cost"], showCostDelta: true });
+
+  // Turn 2: small cost delta (+$0.15 < 0.50 threshold)
+  const input2 = {
+    session_id: sid,
+    cost: { total_cost_usd: 0.35 },
+  };
+  const outNormal = renderStatusline(input2, {
+    colors: false,
+    fields: ["cost"],
+    showCostDelta: true,
+    costSurgeThreshold: 0.50,
+  });
+  assert.ok(outNormal.includes("(+$0.15)"), `Expected (+$0.15) in output, got: ${outNormal}`);
+  assert.ok(!outNormal.includes("⚠️"), "Small cost should not have ⚠️");
+
+  // Turn 3: cost surge (+$0.80 >= 0.50 threshold)
+  const input3 = {
+    session_id: sid,
+    cost: { total_cost_usd: 1.15 },
+  };
+  const outSurge = renderStatusline(input3, {
+    colors: false,
+    fields: ["cost"],
+    showCostDelta: true,
+    costSurgeThreshold: 0.50,
+  });
+  assert.ok(outSurge.includes("(+$0.80⚠️)"), `Expected (+$0.80⚠️) in output, got: ${outSurge}`);
+});
+
+test("context renderer formats context runway estimation when enabled", () => {
+  const sid = `test-runway-${Date.now()}`;
+  const input1 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 120000, context_window_size: 200000 },
+  };
+  renderStatusline(input1, { colors: false, fields: ["context"], showContextRunway: true });
+
+  // Turn 2 (+20k)
+  const input2 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 140000, context_window_size: 200000 },
+  };
+  renderStatusline(input2, { colors: false, fields: ["context"], showContextRunway: true });
+
+  // Turn 3 (+20k, remaining 40k -> ~2 turns left)
+  const input3 = {
+    session_id: sid,
+    context_window: { total_input_tokens: 160000, context_window_size: 200000 },
+  };
+  const out = renderStatusline(input3, {
+    colors: false,
+    fields: ["context"],
+    showContextRunway: true,
+  });
+  assert.ok(out.includes("(~2 turns left)"), `Expected (~2 turns left) in output, got: ${out}`);
+});
+
+test("git renderer formats staged changes alert when showGitStagedAlert is true", () => {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "claude-staged-test-"));
+  try {
+    fs.mkdirSync(path.join(tmpRepo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(tmpRepo, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const crypto = require("crypto");
+    const hash = crypto.createHash("sha1").update(tmpRepo).digest("hex").slice(0, 16);
+    const cacheFile = path.join(os.tmpdir(), `claude-code-status-git-${hash}.json`);
+
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        at: Date.now(),
+        output: "## main\nM  staged-file.js\nA  new-staged.js\n M unstaged-file.js\n",
+      }),
+      "utf8"
+    );
+
+    const out = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], showGitStagedAlert: true, gitCacheTtl: 10 }
+    );
+    assert.ok(out.includes("(+2 staged)"), `Expected (+2 staged) in output, got: ${out}`);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("project renderer supports ideLink for vscode, cursor, and zed", () => {
+  const input = {
+    workspace: {
+      current_dir: "/path/to/my-project",
+    },
+  };
+
+  // VS Code link
+  const outVsCode = renderStatusline(input, {
+    colors: false,
+    fields: ["project"],
+    clickableProjectPath: true,
+    ideLink: "vscode",
+  });
+  assert.ok(outVsCode.includes("vscode://file/path/to/my-project"), `Expected vscode:// link, got: ${outVsCode}`);
+
+  // Cursor link
+  const outCursor = renderStatusline(input, {
+    colors: false,
+    fields: ["project"],
+    clickableProjectPath: true,
+    ideLink: "cursor",
+  });
+  assert.ok(outCursor.includes("cursor://file/path/to/my-project"), `Expected cursor:// link, got: ${outCursor}`);
+});
+
+test("cli menu runs without errors in non-interactive environment", () => {
+  const home = makeSandboxHome("claude-menu-test-");
+  try {
+    const out = runCli(home, "menu");
+    assert.ok(out.includes("交互式特性面板"), "Menu output should include header");
+    assert.ok(out.includes("Surge Protection"), "Menu should list Surge Protection");
+    assert.ok(out.includes("Context Runway"), "Menu should list Context Runway");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
