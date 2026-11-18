@@ -17,6 +17,12 @@ const {
   UI_PRESETS,
   parseJsonWithComments,
   readGitStatus,
+  loadConfig,
+  getThemeColors,
+  getStringWidth,
+  getMcpServerCount,
+  DEFAULT_FIELDS,
+  FIELD_RENDERERS,
 } = require("./statusline.js");
 
 const GREEN = "\x1b[32m";
@@ -808,6 +814,31 @@ function showConfigMenu() {
       type: "cycle",
       options: ["blocks", "smooth", "dots", "ascii"],
     },
+    {
+      key: "responsive",
+      name: "窄终端分屏智能自适应折叠 (Responsive Layout)",
+      desc: "窄屏/垂直分屏宽度受限时智能压缩分支并折叠辅助指标，杜绝意外折行",
+      type: "toggle",
+    },
+    {
+      key: "showGitLeakGuard",
+      name: "Git 未跟踪高危敏感秘钥防护 (Sensitive Leak Guard)",
+      desc: "根目录存在未纳入 .gitignore 的 .env / id_rsa 等高危凭据时发出警告",
+      type: "toggle",
+    },
+    {
+      key: "showCacheSavings",
+      name: "Prompt Cache 物理减免量折算 (Token Savings)",
+      desc: "展示由 Prompt Cache 命中所物理避免的 Token 消耗 (saved 350k tok)",
+      type: "toggle",
+    },
+    {
+      key: "capsuleStyle",
+      name: "模块智能胶囊风格 (Capsule Enclosing Style)",
+      desc: "none (平铺), pill (方括号胶囊 [ ... ]), round (圆括号胶囊 ( ... ))",
+      type: "cycle",
+      options: ["none", "pill", "round"],
+    },
   ];
 
   console.log(`\n${BOLD}claude-code-status (ccs) 交互式特性面板:${RESET}\n`);
@@ -1211,7 +1242,7 @@ function preview() {
   });
 }
 
-function doctor() {
+function doctor(isVerbose = false) {
   console.log(`\n${BOLD}claude-code-status (ccs) Health Doctor${RESET}\n`);
   let hasError = false;
 
@@ -1317,6 +1348,39 @@ function doctor() {
   }
   console.log(`  ${GREEN}✔ Render latency:${RESET} ~${formattedAvg}ms/op (avg of ${benchRuns} runs) - ${speedRating}`);
 
+  if (isVerbose) {
+    console.log(`\n${BOLD}[5/5] Subsystem Performance Profiling (--verbose):${RESET}`);
+
+    // Subsystem 1: Config Load & Parse
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 30; i++) loadConfig();
+    const t1 = process.hrtime.bigint();
+    const configAvg = (Number(t1 - t0) / (30 * 1_000_000)).toFixed(3);
+    console.log(`  • Config Load & Parse:   ~${configAvg}ms`);
+
+    // Subsystem 2: Git Status (Cached)
+    const t2 = process.hrtime.bigint();
+    for (let i = 0; i < 30; i++) readGitStatus(process.cwd(), 2);
+    const t3 = process.hrtime.bigint();
+    const gitCachedAvg = (Number(t3 - t2) / (30 * 1_000_000)).toFixed(3);
+    console.log(`  • Git Status (Cached):   ~${gitCachedAvg}ms`);
+
+    // Subsystem 3: ANSI String Width & Measurement
+    const sampleStr = "\x1b[36mclaude-3-7-sonnet\x1b[0m | \x1b[32m[██░░░░░░] 29%\x1b[0m | \x1b[33mmain*\x1b[0m";
+    const t4 = process.hrtime.bigint();
+    for (let i = 0; i < 50; i++) getStringWidth(sampleStr);
+    const t5 = process.hrtime.bigint();
+    const widthAvg = (Number(t5 - t4) / (50 * 1_000_000)).toFixed(4);
+    console.log(`  • String Width (ANSI):   ~${widthAvg}ms`);
+
+    // Subsystem 4: MCP Discovery
+    const t6 = process.hrtime.bigint();
+    for (let i = 0; i < 20; i++) getMcpServerCount(process.cwd());
+    const t7 = process.hrtime.bigint();
+    const mcpAvg = (Number(t7 - t6) / (20 * 1_000_000)).toFixed(3);
+    console.log(`  • MCP Server Discovery:  ~${mcpAvg}ms`);
+  }
+
   console.log();
   if (hasError) {
     console.log(`${YELLOW}${BOLD}Doctor detected potential issues.${RESET} Run ${CYAN}ccs install${RESET} to repair.`);
@@ -1324,6 +1388,133 @@ function doctor() {
     console.log(`${GREEN}${BOLD}✔ All systems healthy!${RESET} Claude Code Statusline is ready to go.`);
   }
   console.log();
+}
+
+function dump() {
+  const proceed = (rawStdin = "") => {
+    console.log(`\n${BOLD}claude-code-status (ccs) Diagnostic Inspector & Dump${RESET}\n`);
+
+    const config = loadConfig();
+    const cwd = process.cwd();
+    const terminalWidth =
+      process.stdout.columns ||
+      process.stderr.columns ||
+      Number(process.env.COLUMNS) ||
+      80;
+
+    console.log(`${BOLD}1. Terminal & Environment:${RESET}`);
+    console.log(`  Columns (Width):     ${CYAN}${terminalWidth}${RESET}`);
+    console.log(`  Colors Supported:    ${config.colors !== false ? `${GREEN}Yes${RESET}` : `${YELLOW}No${RESET}`}`);
+    console.log(`  Color Theme:         ${CYAN}${config.theme || "default"}${RESET}`);
+    console.log(`  Delimiter:           ${CYAN}${JSON.stringify(config.delimiter || "|")}${RESET}`);
+    console.log(`  Responsive Mode:     ${config.responsive ? `${GREEN}Enabled (Auto-Drop)${RESET}` : `${DIM}Disabled${RESET}`}`);
+    if (config.prefix) console.log(`  Prefix:              ${CYAN}${JSON.stringify(config.prefix)}${RESET}`);
+    if (config.suffix) console.log(`  Suffix:              ${CYAN}${JSON.stringify(config.suffix)}${RESET}`);
+    console.log(`  Current Directory:   ${DIM}${cwd}${RESET}`);
+
+    const colors = getThemeColors(config.theme);
+    const project = path.basename(cwd) || cwd || "workspace";
+    const iconSets = {
+      unicode: {
+        model: "✦ ",
+        context: "\u26a1 ",
+        cache: "\u26a1 ",
+        cost: "",
+        rate: "\u23f1 ",
+        git: "\u2387 ",
+        mcp: "\ud83d\udd0c ",
+      },
+      none: {
+        model: "",
+        context: "",
+        cache: "",
+        cost: "",
+        rate: "",
+        git: "",
+        mcp: "",
+      },
+    };
+    const icons = iconSets[config.icons || "none"] || iconSets.none;
+
+    let input = {
+      workspace: { current_dir: cwd },
+      model: { display_name: "claude-3-7-sonnet" },
+      context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+      cost: { total_cost_usd: 0.125 },
+      rate_limits: { five_hour: { used_percentage: 45 } },
+      fast_mode: false,
+    };
+
+    if (rawStdin && rawStdin.trim()) {
+      try {
+        const parsed = JSON.parse(rawStdin);
+        if (parsed && typeof parsed === "object") {
+          input = { ...input, ...parsed };
+          console.log(`  Input Payload:       ${GREEN}Loaded from stdin stream${RESET}`);
+        }
+      } catch (err) {
+        console.log(`  Input Payload:       ${YELLOW}Invalid JSON on stdin, using live environment${RESET}`);
+      }
+    } else {
+      console.log(`  Input Payload:       ${DIM}Live environment simulation${RESET}`);
+    }
+
+    const context = { input, config, icons, colors, cwd, project };
+
+    console.log(`\n${BOLD}2. Field Renderer Inspection:${RESET}`);
+    const activeFields = Array.isArray(config.fields) ? config.fields : DEFAULT_FIELDS;
+
+    console.log(`  ${DIM}Configured fields (${activeFields.length}): [${activeFields.join(", ")}]${RESET}\n`);
+
+    for (const field of activeFields) {
+      const fn = FIELD_RENDERERS[field.toLowerCase()];
+      if (typeof fn !== "function") {
+        console.log(`  ${RED}✖ ${field.padEnd(18)}${RESET} ${YELLOW}[UNKNOWN FIELD]${RESET}`);
+        continue;
+      }
+      const rendered = fn(context);
+      if (rendered) {
+        const width = getStringWidth(rendered);
+        console.log(`  ${GREEN}✔ ${field.padEnd(18)}${RESET} ${DIM}(width: ${width})${RESET}  ${rendered}`);
+      } else {
+        console.log(`  ${DIM}○ ${field.padEnd(18)} [NULL / INACTIVE]${RESET}  ${DIM}(no data available in current environment)${RESET}`);
+      }
+    }
+
+    console.log(`\n${BOLD}3. Complete Statusline Output:${RESET}`);
+    const fullOutput = renderStatusline(input);
+    const fullWidth = getStringWidth(fullOutput);
+    console.log(`  Output: ${fullOutput}`);
+    console.log(`  Visual Width: ${CYAN}${fullWidth}${RESET} columns / ${CYAN}${terminalWidth}${RESET} terminal columns (${fullWidth <= terminalWidth ? `${GREEN}Fits in single line${RESET}` : `${YELLOW}Exceeds single line${RESET}`})\n`);
+  };
+
+  if (process.stdin.isTTY) {
+    proceed();
+    return;
+  }
+
+  let stdinData = "";
+  let finished = false;
+
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    try {
+      process.stdin.pause();
+    } catch {}
+    proceed(stdinData);
+  };
+
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    stdinData += chunk;
+  });
+  process.stdin.on("end", done);
+
+  const timer = setTimeout(done, 150);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
 }
 
 function showHelp() {
@@ -1339,7 +1530,8 @@ ${BOLD}COMMANDS:${RESET}
   ${CYAN}install${RESET}          Configure ~/.claude/settings.json (or repair: ccs fix)
                       Add ${DIM}--if-unset${RESET} to skip when a statusLine already exists
   ${CYAN}uninstall${RESET}        Remove statusline from ~/.claude/settings.json
-  ${CYAN}doctor${RESET}           Check installation health, settings and config integrity
+  ${CYAN}doctor [-v]${RESET}      Check installation health and benchmark latency (--verbose for details)
+  ${CYAN}dump${RESET}             Diagnostic inspection of environment and individual fields
   ${CYAN}set <key> <val>${RESET}  Set configuration property (e.g. ccs set showGitStatusStats true)
   ${CYAN}get [key]${RESET}        Read configuration property (e.g. ccs get theme)
   ${CYAN}toggle <field>${RESET}   Toggle a field on/off in configuration (e.g. ccs toggle todo)
@@ -1395,7 +1587,9 @@ if (arg === "install" || arg === "i" || arg === "fix" || arg === "repair") {
 } else if (arg === "uninstall" || arg === "remove") {
   uninstall();
 } else if (arg === "doctor" || arg === "check") {
-  doctor();
+  doctor(process.argv.includes("--verbose") || process.argv.includes("-v"));
+} else if (arg === "dump" || arg === "inspect" || arg === "debug") {
+  dump();
 } else if (arg === "theme" || arg === "color") {
   setTheme(process.argv[3]);
 } else if (arg === "ui" || arg === "preset") {

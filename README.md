@@ -159,6 +159,10 @@ ccs delimiter "|"   # 竖线分隔 (默认)
 ```bash
 ccs toggle todo                      # 一键开启/关闭 todo 待办进度展示 (免繁琐配置)
 ccs toggle cost                      # 一键开启/关闭 会话费用展示
+ccs set responsive true              # 开启窄终端智能自适应折叠 (分屏下杜绝换行)
+ccs dump                             # 现场环境诊断与各字段解析状态探测
+ccs doctor -v                        # 运行健康体检并输出各子模块毫秒级耗时剖析
+ccs menu                             # 呼出零依赖交互式设置面板 (纯原生 readline)
 ccs set showGitStatusStats true      # 开启 Git 细分文件计数 (+2 *1 ?3)
 ccs set lines 2                      # 切换为双行模式 (窄屏/分屏极佳)
 ccs set projectPathMode relative     # 切换为 Monorepo 相对路径模式
@@ -213,6 +217,8 @@ ccs config list                      # 列出全部配置项及其是否被自�
   "showGitAheadBehind": false, // 是否显示与远端分支的上下游同步差异 (如 main ↑2 ↓1*)
   "showGitStatusStats": false, // 是否细分显示暂存(+)/未暂存(*)/未跟踪(?)文件统计 (如 main +2 *1 ?3)
   "showGitStash": false,       // 是否检测并提示未恢复的 Git 暂存 stash 数量 (如 main* (stash:2)，默认: false)
+  "showGitStagedAlert": false, // 是否在有暂存文件时显式标出 (+N staged) 防误重置 (默认: false)
+  "showGitLeakGuard": false,   // 是否检测未跟踪的高危敏感凭据 (如 .env, id_rsa, credentials.json) 并发出告警 (默认: false)
   "maxBranchLength": 0,        // 分支名最大显示长度 (0 为不截断，>0 时超长自动中间省略，如 feat/auth...flow)
   "gitCacheTtl": 2,            // Git 状态磁盘缓存秒数 (0 为每次实时读取)
   "projectPathMode": "basename", // 项目显示模式: "basename" (仅目录名) 或 "relative" (Monorepo 相对路径: repo:apps/web)
@@ -245,6 +251,12 @@ ccs config list                      # 列出全部配置项及其是否被自�
 
   // 7. 外观风格与分隔符
   "delimiter": "|",
+  "capsuleStyle": "none",     // 模块智能胶囊风格: "none" (平铺), "pill" (方括号胶囊 [ ... ]), "round" (圆括号胶囊 ( ... ))
+  "showCacheSavings": false,  // 展示 Prompt Cache 实际避免的 Token 减免量 (例如: Cache:92% (saved 350k tok)，默认: false)
+  "prefix": "",               // 状态栏前置修饰符 (例如: " " 或 "✦ ")
+  "suffix": "",               // 状态栏后置修饰符 (例如: " ")
+  "responsive": false,        // 窄终端分屏智能自适应优雅降级 (默认: false，超窄窗口下自动压缩分支并折叠次要指标)
+  "responsiveMinBranchLength": 8, // 软压缩时 Git 分支名最小保留长度
   "icons": "none",            // 图标风格: "none" (纯文本), "unicode" (原生字符)
   "progressBar": true,
   "progressBarLength": 8,

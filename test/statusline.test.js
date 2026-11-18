@@ -23,7 +23,7 @@ const {
   readGitStatus,
   getStringWidth,
 } = require("../bin/statusline.js");
-const { stripAnsi } = require("../lib/utils.js");
+const { stripAnsi, applyResponsiveLayout, DEFAULT_FIELD_PRIORITIES } = require("../lib/utils.js");
 
 const PROJECT_DIR = path.resolve(__dirname, "..");
 const CLI_PATH = path.join(PROJECT_DIR, "bin", "cli.js");
@@ -1722,4 +1722,232 @@ test("cli menu runs without errors in non-interactive environment", () => {
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("responsive mode drops lowest-priority fields when terminal width is constrained", () => {
+  const input = {
+    workspace: { current_dir: "/path/to/project" },
+    model: { display_name: "sonnet" },
+    context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+    cost: { total_cost_usd: 0.25 },
+  };
+
+  // Wide terminal: all fields present, no overflow badge
+  const outWide = renderStatusline(input, {
+    colors: false,
+    fields: ["model", "context", "cost"],
+    terminalWidth: 120,
+    responsive: true,
+  });
+  assert.ok(outWide.includes("sonnet"), "Wide terminal should show model");
+  assert.ok(outWide.includes("29%"), "Wide terminal should show context");
+  assert.ok(outWide.includes("$0.25"), "Wide terminal should show cost");
+  assert.ok(!outWide.includes("(+"), "Wide terminal should not show overflow badge");
+
+  // Narrow terminal (cols: 45): cost (prio 60) dropped, model (prio 80) and context (prio 80) kept, (+1) badge added
+  const outNarrow = renderStatusline(input, {
+    colors: false,
+    fields: ["model", "context", "cost"],
+    terminalWidth: 45,
+    responsive: true,
+  });
+  assert.ok(outNarrow.includes("sonnet"), "Narrow terminal should keep model");
+  assert.ok(outNarrow.includes("29%"), "Narrow terminal should keep context");
+  assert.ok(!outNarrow.includes("$0.25"), "Narrow terminal should drop cost");
+  assert.ok(outNarrow.includes("(+1)"), `Narrow terminal should display (+1) badge, got: ${outNarrow}`);
+});
+
+test("responsive mode preserves critical surge and compact alerts", () => {
+  const input = {
+    workspace: { current_dir: "/path/to/project" },
+    model: { display_name: "sonnet" },
+    context_window: { total_input_tokens: 170000, context_window_size: 200000 },
+    cost: { total_cost_usd: 1.50 },
+  };
+
+  // With compact alert at priority 100, on a narrow terminal (cols: 25), cost is dropped while compact warning stays
+  const out = renderStatusline(input, {
+    colors: false,
+    fields: ["model", "compact", "cost"],
+    showCompactAlert: true,
+    compactAlertThreshold: 80,
+    terminalWidth: 25,
+    responsive: true,
+  });
+  assert.ok(out.includes("⚠️compact"), `Expected ⚠️compact to be preserved due to high priority, got: ${out}`);
+  assert.ok(out.includes("(+1)"), `Expected (+1) badge for dropped cost, got: ${out}`);
+});
+
+test("responsive mode applies soft compression on branch before dropping fields", () => {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "claude-responsive-git-"));
+  try {
+    fs.mkdirSync(path.join(tmpRepo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(tmpRepo, ".git", "HEAD"), "ref: refs/heads/feature/very-long-branch-name-for-responsive-test\n");
+
+    const crypto = require("crypto");
+    const hash = crypto.createHash("sha1").update(tmpRepo).digest("hex").slice(0, 16);
+    const cacheFile = path.join(os.tmpdir(), `claude-code-status-git-${hash}.json`);
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        at: Date.now(),
+        output: "## feature/very-long-branch-name-for-responsive-test\n",
+      }),
+      "utf8"
+    );
+
+    const input = {
+      workspace: { current_dir: tmpRepo },
+      model: { display_name: "sonnet" },
+    };
+
+    // Terminal width 30 with long branch name: soft compression should middle-truncate the branch
+    const out = renderStatusline(input, {
+      colors: false,
+      fields: ["model", "git"],
+      terminalWidth: 30,
+      responsive: true,
+      responsiveMinBranchLength: 8,
+      gitCacheTtl: 10,
+    });
+
+    assert.ok(out.includes("sonnet"), `Expected model to be present, got: ${out}`);
+    assert.ok(out.includes("fea") && (out.includes("...") || out.includes("…")), `Expected compressed branch name in output, got: ${out}`);
+    // Should NOT have dropped any field because soft compression made both fit in 30 columns
+    assert.ok(!out.includes("(+1)"), `Expected both fields to fit with soft compression, got: ${out}`);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("prefix and suffix options wrap statusline cleanly and adjust width", () => {
+  const input = {
+    workspace: { current_dir: "/path/to/project" },
+    model: { display_name: "claude-3-7-sonnet" },
+  };
+
+  const out = renderStatusline(input, {
+    colors: false,
+    fields: ["model"],
+    prefix: "✦ ",
+    suffix: " ✦",
+  });
+  assert.ok(out.startsWith("✦ claude-3-7-sonnet"), `Expected prefix, got: ${out}`);
+  assert.ok(out.endsWith(" ✦"), `Expected suffix, got: ${out}`);
+});
+
+test("cli dump command inspects environment and field rendering status", () => {
+  const home = makeSandboxHome("claude-dump-test-");
+  try {
+    const out = runCli(home, "dump");
+    assert.ok(out.includes("Diagnostic Inspector & Dump"), "Should contain dump header");
+    assert.ok(out.includes("Terminal & Environment:"), "Should inspect terminal environment");
+    assert.ok(out.includes("Field Renderer Inspection:"), "Should list field renderers");
+    assert.ok(out.includes("Complete Statusline Output:"), "Should show complete output");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("cli doctor verbose flag outputs subsystem latency profiling", () => {
+  const home = makeSandboxHome("claude-doc-verbose-test-");
+  try {
+    const out = runCli(home, "doctor", "--verbose");
+    assert.ok(out.includes("[5/5] Subsystem Performance Profiling (--verbose):"), "Should show [5/5] profiling section");
+    assert.ok(out.includes("Config Load & Parse:"), "Should benchmark config loading");
+    assert.ok(out.includes("Git Status (Cached):"), "Should benchmark git caching");
+    assert.ok(out.includes("String Width (ANSI):"), "Should benchmark string measurement");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("git renderer detects and alerts untracked sensitive credential leak risk", () => {
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "claude-leak-guard-test-"));
+  try {
+    fs.mkdirSync(path.join(tmpRepo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(tmpRepo, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const crypto = require("crypto");
+    const hash = crypto.createHash("sha1").update(tmpRepo).digest("hex").slice(0, 16);
+    const cacheFile = path.join(os.tmpdir(), `claude-code-status-git-${hash}.json`);
+
+    fs.writeFileSync(
+      cacheFile,
+      JSON.stringify({
+        at: Date.now(),
+        output: "## main\n?? .env\n?? src/index.js\n",
+      }),
+      "utf8"
+    );
+
+    // When showGitLeakGuard is enabled, should show (⚠️leak:.env)
+    const outWithGuard = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], showGitLeakGuard: true, gitCacheTtl: 10 }
+    );
+    assert.ok(outWithGuard.includes("(⚠️leak:.env)"), `Expected (⚠️leak:.env), got: ${outWithGuard}`);
+
+    // When showGitLeakGuard is false, warning should be omitted
+    const outWithoutGuard = renderStatusline(
+      { workspace: { current_dir: tmpRepo } },
+      { colors: false, fields: ["git"], showGitLeakGuard: false, gitCacheTtl: 10 }
+    );
+    assert.ok(!outWithoutGuard.includes("leak"), `Expected no leak warning, got: ${outWithoutGuard}`);
+  } finally {
+    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  }
+});
+
+test("cache renderer displays physical token savings when showCacheSavings is enabled", () => {
+  const input = {
+    context_window: {
+      current_usage: {
+        cache_read_input_tokens: 350000,
+        cache_creation_input_tokens: 10000,
+        input_tokens: 40000,
+      },
+    },
+  };
+
+  const out = renderStatusline(input, {
+    colors: false,
+    fields: ["cache"],
+    showCacheSavings: true,
+  });
+  assert.ok(out.includes("Cache:88%"), `Expected hit rate percentage, got: ${out}`);
+  assert.ok(out.includes("(saved 350k tok)"), `Expected token savings string, got: ${out}`);
+
+  // When showCacheSavings is false, tag should be omitted
+  const outOff = renderStatusline(input, {
+    colors: false,
+    fields: ["cache"],
+    showCacheSavings: false,
+  });
+  assert.ok(!outOff.includes("saved"), `Expected no savings string, got: ${outOff}`);
+});
+
+test("capsuleStyle wraps segments cleanly and prevents double bracket nesting", () => {
+  const input = {
+    workspace: { current_dir: "/path/to/project" },
+    model: { display_name: "claude-3-7-sonnet" },
+    context_window: { total_input_tokens: 58000, context_window_size: 200000 },
+  };
+
+  // pill style: wraps model with [ ... ], but keeps progress bar [██░░░░░░] without double nesting [[...]]
+  const outPill = renderStatusline(input, {
+    colors: false,
+    fields: ["model", "context"],
+    capsuleStyle: "pill",
+  });
+  assert.ok(outPill.includes("[ claude-3-7-sonnet ]"), `Expected pill bracket for model, got: ${outPill}`);
+  assert.ok(!outPill.includes("[["), `Expected no double bracket nesting, got: ${outPill}`);
+
+  // round style: wraps model with ( ... )
+  const outRound = renderStatusline(input, {
+    colors: false,
+    fields: ["model"],
+    capsuleStyle: "round",
+  });
+  assert.ok(outRound.includes("( claude-3-7-sonnet )"), `Expected round bracket for model, got: ${outRound}`);
 });

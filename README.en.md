@@ -159,6 +159,10 @@ Modify and inspect any configuration property directly from the terminal without
 ```bash
 ccs toggle todo                      # Instantly toggle todo checklist progress on/off
 ccs toggle cost                      # Instantly toggle session cost display on/off
+ccs set responsive true              # Enable responsive field dropping for narrow / split terminals
+ccs dump                             # Live diagnostic inspection of terminal environment & fields
+ccs doctor -v                        # Run health doctor with per-subsystem millisecond latency profiling
+ccs menu                             # Interactive terminal settings menu (zero dependencies)
 ccs set showGitStatusStats true       # Enable fine-grained Git file stats (+2 *1 ?3)
 ccs set lines 2                      # Switch to dual-line layout (great for split panes)
 ccs set projectPathMode relative     # Switch to Monorepo relative directory mode
@@ -209,6 +213,8 @@ On first run or after `ccs install`, an annotated config file is generated at `~
   "showGitAheadBehind": false, // Show upstream diff arrows (e.g. main ↑2 ↓1*)
   "showGitStatusStats": false, // Show detailed staged (+), unstaged (*), untracked (?) file counts (e.g. main +2 *1 ?3)
   "showGitStash": false,       // Show unapplied git stash count badge (e.g. main* (stash:2), default: false)
+  "showGitStagedAlert": false, // Explicitly warn on staged files (+N staged) before commit
+  "showGitLeakGuard": false,   // Warn on untracked high-risk credentials (.env, id_rsa, credentials.json)
   "maxBranchLength": 0,        // Max branch display length (0 disables; >0 middle-truncates e.g. feat/auth...flow)
   "gitCacheTtl": 2,            // Cache duration in seconds (0 = disabled)
   "projectPathMode": "basename", // Project path mode: "basename" (folder only) or "relative" (Monorepo: repo:apps/web)
@@ -241,6 +247,12 @@ On first run or after `ccs install`, an annotated config file is generated at `~
 
   // 7. Visual styling
   "delimiter": "|",
+  "capsuleStyle": "none",     // Smart capsule styling: "none", "pill" ([ ... ]), or "round" (( ... ))
+  "showCacheSavings": false,  // Display physical token savings from Prompt Cache (e.g. Cache:92% (saved 350k tok))
+  "prefix": "",               // Statusline prefix (e.g. " " or "✦ ")
+  "suffix": "",               // Statusline suffix (e.g. " ")
+  "responsive": false,        // Responsive layout degradation (default: false, compresses branches and folds auxiliary metrics on narrow screens)
+  "responsiveMinBranchLength": 8, // Minimum branch length during soft compression
   "icons": "none",            // "none" or "unicode"
   "progressBar": true,
   "progressBarLength": 8,
